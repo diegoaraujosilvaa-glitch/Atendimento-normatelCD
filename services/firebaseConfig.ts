@@ -1,4 +1,3 @@
-
 // Importação corrigida para o SDK Modular do Firebase (v9+)
 import { initializeApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";

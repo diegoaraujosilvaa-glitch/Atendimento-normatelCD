@@ -63,19 +63,29 @@ export const announceCustomerCall = async (customerName: string, ticketId: strin
   const now = Date.now();
   const lastCallTime = callLockMap.get(ticketId) || 0;
 
-  // Bloqueio de 5 segundos para o mesmo ticket (conforme solicitado para o botão)
+  // Bloqueio de 5 segundos para o mesmo ticket
   if (now - lastCallTime < 5000) return;
   
-  // Interrompe áudio anterior antes de começar o novo
+  // Interrompe áudio anterior
   stopAllAudio();
 
   isGlobalSpeaking = true;
   callLockMap.set(ticketId, now);
 
   try {
+    // Verificação de API Key em tempo de execução
+    if (!process.env.API_KEY) {
+      console.warn("Aviso: Chave de API não detectada. Tentando abrir seletor...");
+      if (window.aistudio && window.aistudio.openSelectKey) {
+        await window.aistudio.openSelectKey();
+      }
+      isGlobalSpeaking = false;
+      return;
+    }
+
+    // Cria instância com a chave mais recente injetada pelo diálogo
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     
-    // Prompt configurado para 2 repetições na mesma trilha de áudio
     const promptText = `Atenção: ${customerName}. ${customerName}. Por favor, comparecer ao Atendimento Externo. Seu pedido está pronto.`;
 
     const response = await ai.models.generateContent({
@@ -85,7 +95,7 @@ export const announceCustomerCall = async (customerName: string, ticketId: strin
         responseModalities: [Modality.AUDIO],
         speechConfig: {
           voiceConfig: {
-            prebuiltVoiceConfig: { voiceName: 'Puck' }, // Puck é uma voz masculina robusta e clara
+            prebuiltVoiceConfig: { voiceName: 'Puck' },
           },
         },
       },
@@ -124,8 +134,15 @@ export const announceCustomerCall = async (customerName: string, ticketId: strin
     } else {
       isGlobalSpeaking = false;
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error("Erro no Gemini TTS:", error);
     isGlobalSpeaking = false;
+
+    // Se o erro for de entidade não encontrada (chave inválida ou expirada), reinicia o seletor
+    if (error.message?.includes("Requested entity was not found") || error.message?.includes("API Key must be set")) {
+       if (window.aistudio && window.aistudio.openSelectKey) {
+         window.aistudio.openSelectKey();
+       }
+    }
   }
 };

@@ -19,6 +19,25 @@ const App: React.FC = () => {
   const [activeModule, setActiveModule] = useState<AppModule | null>(null);
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [hasApiKey, setHasApiKey] = useState(true);
+
+  // Verificar se a chave de API foi selecionada
+  useEffect(() => {
+    const checkKey = async () => {
+      if (window.aistudio && typeof window.aistudio.hasSelectedApiKey === 'function') {
+        const selected = await window.aistudio.hasSelectedApiKey();
+        setHasApiKey(selected);
+      }
+    };
+    checkKey();
+  }, []);
+
+  const handleOpenKeySelection = async () => {
+    if (window.aistudio && typeof window.aistudio.openSelectKey === 'function') {
+      await window.aistudio.openSelectKey();
+      setHasApiKey(true); // Assume sucesso após abrir o diálogo
+    }
+  };
 
   // Desbloqueio de Áudio
   useEffect(() => {
@@ -39,24 +58,19 @@ const App: React.FC = () => {
     }
   }, []);
 
-  // SINCRONIZAÇÃO EM TEMPO REAL (MÁGICA DO ON-SNAPSHOT)
+  // SINCRONIZAÇÃO EM TEMPO REAL
   useEffect(() => {
-    // Só sincroniza se houver usuário e data, e se não estiver na tela de relatórios (que é histórica)
     if (currentUser && sessionDate && activeModule !== 'reports') {
       setIsSyncing(true);
-      
       const unsubscribe = DataService.subscribeTickets(sessionDate, (updatedTickets) => {
         setTickets(updatedTickets);
         setIsSyncing(false);
       });
-
-      // Cleanup: Cancela a escuta quando o componente desmonta ou muda a data
       return () => unsubscribe();
     }
   }, [currentUser, sessionDate, activeModule]);
 
   const addTicket = useCallback(async (ticketData: Omit<Ticket, 'id' | 'password' | 'arrivalTime' | 'status'>) => {
-    // Gerar senha localmente para feedback imediato se necessário, mas o Firestore gerará o ID real
     const ticketPayload: Omit<Ticket, 'id'> = {
       ...ticketData,
       password: `${ticketData.priority === Priority.PRIORITY ? 'P' : 'N'}-${(tickets.length + 1).toString().padStart(3, '0')}`,
@@ -69,13 +83,11 @@ const App: React.FC = () => {
   const updateTicketStatus = useCallback(async (id: string, newStatus: TicketStatus) => {
     const ticket = tickets.find(t => t.id === id);
     if (!ticket) return;
-    
     const update: any = { status: newStatus };
     if (newStatus === TicketStatus.IN_SEPARATION) update.separationStartTime = new Date();
     if (newStatus === TicketStatus.READY) update.separationEndTime = new Date();
     if (newStatus === TicketStatus.CALLED) update.callTime = new Date();
     if (newStatus === TicketStatus.FINISHED) update.finishTime = new Date();
-    
     await DataService.updateTicket(sessionDate, { ...ticket, ...update });
   }, [tickets, sessionDate]);
 
@@ -107,20 +119,25 @@ const App: React.FC = () => {
               <div className="hidden sm:block border-l border-white/10 pl-4">
                 <div className="flex items-center gap-2">
                   <h1 className="text-lg font-black tracking-tight leading-none uppercase">GESTOR</h1>
-                  {isSyncing && <i className="fas fa-sync fa-spin text-[10px] text-[#e67324]"></i>}
                 </div>
                 <p className="text-[10px] text-[#e67324] font-bold uppercase tracking-widest mt-1">Nuvem Ativa</p>
               </div>
             </div>
+            
             <nav className="hidden lg:flex items-center space-x-2">
+              {!hasApiKey && (
+                <button 
+                  onClick={handleOpenKeySelection}
+                  className="mr-4 bg-amber-500 hover:bg-amber-600 text-[#1a1a1a] px-4 py-2 rounded-lg text-[10px] font-black uppercase flex items-center gap-2 animate-pulse"
+                >
+                  <i className="fas fa-key"></i> ATIVAR VOZ (API)
+                </button>
+              )}
               <div className="flex bg-[#2a2a2a] rounded-lg p-1 mr-4 border border-[#3a3a3a]">
                 <button onClick={() => setActiveModule('reception')} className={`px-4 py-2 rounded-md text-xs font-bold transition-all ${activeModule === 'reception' ? 'bg-[#e67324] text-white' : 'text-gray-400 hover:text-white'}`}>RECEPÇÃO</button>
                 <button onClick={() => setActiveModule('separation')} className={`px-4 py-2 rounded-md text-xs font-bold transition-all ${activeModule === 'separation' ? 'bg-[#e67324] text-white' : 'text-gray-400 hover:text-white'}`}>OPERACIONAL</button>
                 <button onClick={() => setActiveModule('dashboard')} className={`px-4 py-2 rounded-md text-xs font-bold transition-all ${activeModule === 'dashboard' ? 'bg-[#e67324] text-white' : 'text-gray-400 hover:text-white'}`}>PAINEL TV</button>
                 <button onClick={() => setActiveModule('reports')} className={`px-4 py-2 rounded-md text-xs font-bold transition-all ${activeModule === 'reports' ? 'bg-[#e67324] text-white' : 'text-gray-400 hover:text-white'}`}>RELATÓRIOS</button>
-                {currentUser?.role === 'admin' && (
-                  <button onClick={() => setActiveModule('users')} className={`px-4 py-2 rounded-md text-xs font-bold transition-all ${activeModule === 'users' ? 'bg-[#e67324] text-white' : 'text-gray-400 hover:text-white'}`}>USUÁRIOS</button>
-                )}
               </div>
               <button onClick={handleLogout} className="text-red-400 hover:text-red-300 text-xs font-black uppercase tracking-widest px-4 transition-colors">Sair</button>
             </nav>
@@ -153,6 +170,8 @@ const App: React.FC = () => {
             initialDate={sessionDate}
             currentUser={currentUser}
             onLogout={handleLogout}
+            onOpenKeySelection={handleOpenKeySelection}
+            hasApiKey={hasApiKey}
           />
         ) : (
           <Layout>
