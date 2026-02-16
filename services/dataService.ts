@@ -33,21 +33,8 @@ class DataService {
   }
 
   /**
-   * Assina atualizações em tempo real para a coleção "atendimentos"
-   */
-  static subscribeAtendimentos(callback: (data: any[]) => void) {
-    const q = query(collection(db, "atendimentos"), orderBy("criadoEm", "desc"), limit(50));
-    return onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...this.parseFirestoreData(doc.data())
-      }));
-      callback(data);
-    });
-  }
-
-  /**
    * Assina atualizações em tempo real para os tickets da data selecionada
+   * CRÍTICO: Garante que o doc.id seja o ID REAL do Firestore
    */
   static subscribeTickets(date: string, callback: (tickets: Ticket[]) => void) {
     const q = query(
@@ -57,10 +44,13 @@ class DataService {
     );
 
     return onSnapshot(q, (snapshot) => {
-      const tickets = snapshot.docs.map(doc => ({
-        id: doc.id, 
-        ...this.parseFirestoreData(doc.data()) 
-      } as Ticket));
+      const tickets = snapshot.docs.map(document => {
+        const data = document.data();
+        return {
+          ...this.parseFirestoreData(data),
+          id: document.id // Garante o ID real do documento para operações posteriores
+        } as Ticket;
+      });
       callback(tickets);
     }, (error) => {
       console.error("Erro na escuta em tempo real:", error);
@@ -74,22 +64,33 @@ class DataService {
       const payload = {
         ...ticket,
         sessionDate: date,
-        // Garante que o Firestore salve como Timestamp para ordenação correta
         arrivalTime: Timestamp.fromDate(new Date())
       };
-      await addDoc(collection(db, "tickets"), payload);
+      const docRef = await addDoc(collection(db, "tickets"), payload);
+      console.log("Ticket criado com ID:", docRef.id);
     } catch (e) {
       console.error("Erro ao adicionar ticket:", e);
     }
   }
 
+  /**
+   * Atualiza um ticket existente
+   * CRÍTICO: Usa doc(db, "tickets", id) com o ID capturado via onSnapshot
+   */
   static async updateTicket(date: string, updatedTicket: Ticket): Promise<void> {
     try {
       const { id, ...data } = updatedTicket;
+      
+      console.log("Tentando atualizar ticket com ID:", id);
+      
+      if (!id || id.length < 5) {
+        console.error("ERRO: Tentativa de atualizar ticket com ID inválido ou ausente.");
+        return;
+      }
+
       const ticketRef = doc(db, "tickets", id);
       
       const payload: any = { ...data };
-      // Converte quaisquer objetos Date de volta para Timestamp antes do update
       Object.keys(payload).forEach(key => {
         if (payload[key] instanceof Date) {
           payload[key] = Timestamp.fromDate(payload[key]);
@@ -97,13 +98,18 @@ class DataService {
       });
 
       await updateDoc(ticketRef, payload);
-    } catch (e) {
-      console.error("Erro ao atualizar ticket:", e);
+      console.log(`Sucesso: Ticket ${id} atualizado.`);
+    } catch (e: any) {
+      console.error("Falha ao atualizar ticket no Firestore:", e);
+      if (e.code === 'not-found') {
+        console.error(`Documento com ID ${updatedTicket.id} não existe na coleção 'tickets'.`);
+      }
     }
   }
 
   static async deleteTicket(date: string, ticketId: string): Promise<void> {
     try {
+      console.log("Deletando ticket ID:", ticketId);
       await deleteDoc(doc(db, "tickets", ticketId));
     } catch (e) {
       console.error("Erro ao deletar ticket:", e);
