@@ -1,61 +1,65 @@
 
 import { GoogleGenAI, Modality } from "@google/genai";
 
-// Variável de controle para fila de reprodução de áudio Gemini
-let nextStartTime = 0;
+// Controle de execução singleton
+let isSpeaking = false;
+let currentCustomerCalling = "";
 let globalAudioContext: AudioContext | null = null;
 
 /**
- * Função de fallback para voz nativa do navegador (Web Speech API)
- * Ajustada para atender aos requisitos de voz masculina, cancelamento de fila e repetição.
+ * Seleciona rigorosamente uma voz masculina em português
  */
-const speakNative = (text: string) => {
-  if (!('speechSynthesis' in window)) {
-    console.warn("Navegador não suporta síntese de voz nativa.");
-    return;
-  }
+const getPreferredMaleVoice = (): SpeechSynthesisVoice | null => {
+  const voices = window.speechSynthesis.getVoices();
+  const ptBRVoices = voices.filter(v => v.lang.includes('pt-BR') || v.lang.includes('pt_BR'));
+  
+  if (ptBRVoices.length === 0) return null;
 
-  // 3. Evitar Disparos Múltiplos: Cancela qualquer fala em andamento ou na fila
+  // Busca por nomes conhecidos de vozes masculinas ou tags específicas
+  return ptBRVoices.find(v => 
+    v.name.toLowerCase().includes('masculino') || 
+    v.name.toLowerCase().includes('male') || 
+    v.name.toLowerCase().includes('daniel') || 
+    v.name.toLowerCase().includes('felipe') ||
+    v.name.toLowerCase().includes('google português do brasil')
+  ) || ptBRVoices[0];
+};
+
+/**
+ * Função de fallback nativa com trava de singleton e cancelamento total
+ */
+const speakNative = (text: string, customerId: string) => {
+  if (!('speechSynthesis' in window)) return;
+
+  // 3. Limpeza de Fila (Reset Total)
   window.speechSynthesis.cancel();
 
-  // Função interna para configurar e disparar a voz
-  const performSpeak = () => {
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = 'pt-BR';
-    utterance.rate = 0.9; // Velocidade levemente reduzida para maior clareza
-    utterance.pitch = 1.0;
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = 'pt-BR';
+  utterance.rate = 0.85; // Cadência mais pausada e profissional
+  utterance.pitch = 1.0;
 
-    // 2. Voz Única e Masculina
-    // Obtém vozes disponíveis e filtra por Português do Brasil
-    const voices = window.speechSynthesis.getVoices();
-    const ptBRVoices = voices.filter(v => v.lang.includes('pt-BR') || v.lang.includes('pt_BR'));
+  const maleVoice = getPreferredMaleVoice();
+  if (maleVoice) {
+    utterance.voice = maleVoice;
+  }
 
-    if (ptBRVoices.length > 0) {
-      // Tenta encontrar uma voz masculina conhecida em diferentes SOs
-      const preferredMaleVoice = ptBRVoices.find(v => 
-        v.name.toLowerCase().includes('masculino') || 
-        v.name.toLowerCase().includes('male') || 
-        v.name.toLowerCase().includes('daniel') || // Windows
-        v.name.toLowerCase().includes('felipe') || // Apple/macOS
-        v.name.toLowerCase().includes('google português do brasil') // Chrome (geralmente Daniel)
-      );
-
-      // Se não achar masculina, usa a primeira disponível em PT-BR para evitar troca de vozes
-      utterance.voice = preferredMaleVoice || ptBRVoices[0];
-    }
-
-    window.speechSynthesis.speak(utterance);
+  utterance.onstart = () => {
+    isSpeaking = true;
+    currentCustomerCalling = customerId;
   };
 
-  // getVoices() pode ser assíncrono em alguns navegadores no primeiro carregamento
-  if (window.speechSynthesis.getVoices().length === 0) {
-    window.speechSynthesis.onvoiceschanged = () => {
-      window.speechSynthesis.onvoiceschanged = null;
-      performSpeak();
-    };
-  } else {
-    performSpeak();
-  }
+  utterance.onend = () => {
+    isSpeaking = false;
+    currentCustomerCalling = "";
+  };
+
+  utterance.onerror = () => {
+    isSpeaking = false;
+    currentCustomerCalling = "";
+  };
+
+  window.speechSynthesis.speak(utterance);
 };
 
 function decode(base64: string) {
@@ -89,19 +93,30 @@ async function decodeAudioData(
 
 /**
  * Anuncia a chamada do cliente.
- * 1. Limite de Repetições: Nome chamado exatamente 3 vezes.
+ * Requisitos: Limite de 2 nomes, singleton por cliente, cancelamento de fila.
  */
-export const announceCustomerCall = async (customerName: string) => {
-  // Texto configurado para repetir o nome 3 vezes conforme solicitado
-  const promptText = `Atenção: ${customerName}. ${customerName}. ${customerName}. Favor comparecer ao Atendimento externo. Seu pedido está pronto.`;
+export const announceCustomerCall = async (customerName: string, ticketId: string) => {
+  // 2. Trava de Execução (Singleton): Ignora se já estiver chamando este mesmo cliente
+  if (isSpeaking && currentCustomerCalling === ticketId) {
+    console.log(`Chamada já em curso para: ${customerName}. Ignorando duplicata.`);
+    return;
+  }
 
-  // Se não houver chave de API (Gemini), usa voz nativa imediatamente
+  // 1. Limite Estrito de 2 Vezes: Texto configurado para falar o nome exatamente 2 vezes
+  const promptText = `Atenção: ${customerName}. ${customerName}. Por favor, comparecer ao atendimento externo. Seu pedido está pronto.`;
+
+  // Fallback imediato se não houver API KEY ou se for fallback nativo forçado
   if (!process.env.API_KEY || process.env.API_KEY === 'undefined' || process.env.API_KEY === '') {
-    speakNative(promptText);
+    speakNative(promptText, ticketId);
     return;
   }
 
   try {
+    // Interrompe qualquer áudio Gemini anterior antes de gerar novo
+    if (globalAudioContext && globalAudioContext.state !== 'closed') {
+      window.speechSynthesis.cancel(); // Limpa nativo também por segurança
+    }
+
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash-preview-tts",
@@ -110,8 +125,7 @@ export const announceCustomerCall = async (customerName: string) => {
         responseModalities: [Modality.AUDIO],
         speechConfig: {
           voiceConfig: {
-            // 'Kore' é uma voz masculina de alta qualidade no Gemini
-            prebuiltVoiceConfig: { voiceName: 'Kore' },
+            prebuiltVoiceConfig: { voiceName: 'Kore' }, // Kore é masculina e estável
           },
         },
       },
@@ -135,25 +149,23 @@ export const announceCustomerCall = async (customerName: string) => {
         1
       );
 
-      const currentTime = globalAudioContext.currentTime;
-      
-      // Se já houver algo tocando no Gemini, para antes de começar o novo (simulando o cancel() nativo)
-      // Nota: nextStartTime gerencia a fila, mas para o requisito "evitar disparos múltiplos" 
-      // o cancelamento nativo é mais eficaz se o Gemini falhar.
-      nextStartTime = Math.max(nextStartTime, currentTime);
-
       const source = globalAudioContext.createBufferSource();
       source.buffer = audioBuffer;
       source.connect(globalAudioContext.destination);
-      source.start(nextStartTime);
-      nextStartTime += audioBuffer.duration;
       
-      console.log(`Anúncio agendado via Gemini: ${customerName}`);
+      source.onended = () => {
+        isSpeaking = false;
+        currentCustomerCalling = "";
+      };
+
+      isSpeaking = true;
+      currentCustomerCalling = ticketId;
+      source.start(0);
+      
     } else {
-      throw new Error("Sem dados de áudio na resposta");
+      throw new Error("Voz Gemini indisponível");
     }
   } catch (error) {
-    console.warn("Erro no Gemini TTS, revertendo para voz nativa robusta.");
-    speakNative(promptText);
+    speakNative(promptText, ticketId);
   }
 };
