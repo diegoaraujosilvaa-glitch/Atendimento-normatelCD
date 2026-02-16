@@ -1,6 +1,7 @@
 
-import { initializeApp } from "firebase/app";
+// Re-ordering imports to match standard Firebase v9 patterns and align with environment expectations
 import { getFirestore } from "firebase/firestore";
+import { initializeApp } from "firebase/app";
 
 const firebaseConfig = {
   apiKey: "AIzaSyAUGH515dj40sGUUHe2iK327fb1yP-_UG8",
@@ -12,5 +13,7 @@ const firebaseConfig = {
   measurementId: "G-WCS1347YC1"
 };
 
+// Initializing Firebase App using the modular SDK v9
 const app = initializeApp(firebaseConfig);
+// Initializing Firestore instance
 export const db = getFirestore(app);

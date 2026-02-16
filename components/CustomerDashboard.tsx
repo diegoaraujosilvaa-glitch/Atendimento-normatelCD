@@ -122,7 +122,10 @@ const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ tickets = [] }) =
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
         <div className="bg-white rounded-3xl shadow-xl p-8 border-b-8 border-emerald-500">
           <h3 className="text-xl font-black text-emerald-600 mb-8 border-b-2 border-emerald-50 pb-4 flex justify-between items-center">
-            <span>PRONTOS</span>
+            <div className="flex items-center gap-3">
+              <span>PRONTOS</span>
+              <span className="bg-emerald-100 text-emerald-700 text-sm px-3 py-1 rounded-full font-bold">{ready.length}</span>
+            </div>
             <i className="fas fa-check-double text-emerald-100 text-3xl"></i>
           </h3>
           <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2">
@@ -143,7 +146,10 @@ const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ tickets = [] }) =
 
         <div className="bg-white rounded-3xl shadow-xl p-8 border-b-8 border-amber-500">
           <h3 className="text-xl font-black text-amber-600 mb-8 border-b-2 border-amber-50 pb-4 flex justify-between items-center">
-            <span>EM SEPARAÇÃO</span>
+            <div className="flex items-center gap-3">
+              <span>EM SEPARAÇÃO</span>
+              <span className="bg-amber-100 text-amber-700 text-sm px-3 py-1 rounded-full font-bold">{inSeparation.length}</span>
+            </div>
             <i className="fas fa-spinner text-amber-100 text-3xl"></i>
           </h3>
           <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2">
@@ -162,7 +168,10 @@ const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ tickets = [] }) =
 
         <div className="bg-[#1a1a1a] rounded-3xl shadow-xl p-8 border-b-8 border-[#e67324]">
           <h3 className="text-xl font-black text-[#e67324] mb-8 border-b-2 border-white/5 pb-4 flex justify-between items-center">
-            <span>AGUARDANDO</span>
+            <div className="flex items-center gap-3">
+              <span>AGUARDANDO</span>
+              <span className="bg-[#e67324]/20 text-[#e67324] text-sm px-3 py-1 rounded-full font-bold">{waiting.length}</span>
+            </div>
             <i className="fas fa-clock text-white/5 text-3xl"></i>
           </h3>
           <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2">
