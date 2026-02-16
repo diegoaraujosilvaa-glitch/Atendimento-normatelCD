@@ -1,9 +1,9 @@
 
-// Importação modular do Firebase conforme v9+
-import { initializeApp, getApps, getApp } from "firebase/app";
+// Importação do Firebase App usando namespace para evitar erro de resolução de membros em ambientes TypeScript específicos
+import * as firebase from "firebase/app";
 import { getFirestore } from "firebase/firestore";
 
-// Configuração oficial do Firebase - Normatel Home Center
+// Configuração do Firebase para o projeto Normatel Home Center
 const firebaseConfig = {
   apiKey: "AIzaSyAUGH515dj40sGUUHe2iK327fb1yP-_UG8",
   authDomain: "atedimento-normatel.firebaseapp.com",
@@ -14,9 +14,6 @@ const firebaseConfig = {
   measurementId: "G-WCS1347YC1"
 };
 
-// Inicialização única do app para evitar erros de "duplicate app" e garantir compatibilidade modular
-// Correção para o erro de membro não exportado garantindo o uso correto do SDK modular v9
-const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
-const db = getFirestore(app);
-
-export { app, db };
+// Inicialização do Firebase App e exportação da instância do Firestore (Modular SDK v9+)
+const app = firebase.initializeApp(firebaseConfig);
+export const db = getFirestore(app);

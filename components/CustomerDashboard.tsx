@@ -10,65 +10,42 @@ interface CustomerDashboardProps {
 const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ tickets = [] }) => {
   const [lastCalled, setLastCalled] = useState<Ticket | null>(null);
   const [blink, setBlink] = useState(false);
+  // Estabilidade do React: Armazena a última data de chamada anunciada para cada ticket ID
+  const announcedTimestampsRef = useRef<Map<string, number>>(new Map());
   
-  // Referência para rastrear quais eventos de chamada (ID + Timestamp) já foram processados
-  // Isso evita que o sistema re-anuncie o mesmo ticket se a lista de tickets atualizar por outros motivos.
-  const processedEventsRef = useRef<Set<string>>(new Set());
-  
-  // Fila de anúncios para garantir que, se vários forem chamados ao mesmo tempo, todos sejam falados em ordem
-  const [announcementQueue, setAnnouncementQueue] = useState<Ticket[]>([]);
-  const isAnnouncingRef = useRef(false);
-
   useEffect(() => {
     if (!tickets || tickets.length === 0) return;
 
-    // 1. Identifica tickets em status CALLED
-    const currentlyCalled = tickets.filter(t => t.status === TicketStatus.CALLED && t.callTime);
+    // Filtra e ordena tickets chamados pelo horário mais recente
+    const calledTickets = tickets
+      .filter(t => t.status === TicketStatus.CALLED && t.callTime)
+      .sort((a, b) => {
+        const timeA = new Date(a.callTime!).getTime();
+        const timeB = new Date(b.callTime!).getTime();
+        return timeB - timeA;
+      });
     
-    const newAnnouncements: Ticket[] = [];
-
-    currentlyCalled.forEach(ticket => {
-      const eventId = `${ticket.id}-${new Date(ticket.callTime!).getTime()}`;
+    if (calledTickets.length > 0) {
+      const mostRecent = calledTickets[0];
+      const mostRecentTime = new Date(mostRecent.callTime!).getTime();
       
-      // Se este evento específico (Ticket + Hora da Chamada) ainda não foi processado
-      if (!processedEventsRef.current.has(eventId)) {
-        processedEventsRef.current.add(eventId);
-        newAnnouncements.push(ticket);
-      }
-    });
+      const lastAnnouncedTime = announcedTimestampsRef.current.get(mostRecent.id) || 0;
 
-    if (newAnnouncements.length > 0) {
-      // Ordena os novos acionamentos pelo tempo de chamada
-      newAnnouncements.sort((a, b) => new Date(a.callTime!).getTime() - new Date(b.callTime!).getTime());
-      setAnnouncementQueue(prev => [...prev, ...newAnnouncements]);
+      // Só dispara se o timestamp for novo ou superior ao último anunciado localmente
+      if (mostRecentTime > lastAnnouncedTime) {
+        setLastCalled(mostRecent);
+        setBlink(true);
+        
+        // Passa o ID para que o serviço gerencie a trava singleton
+        announceCustomerCall(mostRecent.customerName, mostRecent.id);
+        
+        announcedTimestampsRef.current.set(mostRecent.id, mostRecentTime);
+
+        const timer = setTimeout(() => setBlink(false), 8000);
+        return () => clearTimeout(timer);
+      }
     }
   }, [tickets]);
-
-  // Processador da fila de anúncios
-  useEffect(() => {
-    const processQueue = async () => {
-      if (announcementQueue.length === 0 || isAnnouncingRef.current) return;
-
-      isAnnouncingRef.current = true;
-      const nextTicket = announcementQueue[0];
-
-      // Atualiza o visual
-      setLastCalled(nextTicket);
-      setBlink(true);
-
-      // Dispara a voz (que faz as 2 chamadas internamente)
-      await announceCustomerCall(nextTicket.customerName, nextTicket.password, nextTicket.id);
-
-      // Mantém o blink por mais alguns segundos após a voz terminar
-      setTimeout(() => {
-        setBlink(false);
-        setAnnouncementQueue(prev => prev.slice(1));
-        isAnnouncingRef.current = false;
-      }, 3000);
-    };
-
-    processQueue();
-  }, [announcementQueue]);
 
   const ready = useMemo(() => tickets.filter(t => t.status === TicketStatus.READY), [tickets]);
   const inSeparation = useMemo(() => tickets.filter(t => t.status === TicketStatus.IN_SEPARATION), [tickets]);
@@ -89,150 +66,118 @@ const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ tickets = [] }) =
     <div className="flex flex-col gap-8 min-h-[80vh] animate-fadeIn relative">
       
       {/* Última Chamada - Destaque Principal */}
-      <div className={`transition-all duration-700 rounded-[2.5rem] p-12 text-center shadow-2xl relative overflow-hidden border-[12px] ${blink ? 'bg-[#e67324] border-white scale-[1.01]' : 'bg-[#1a1a1a] border-[#e67324]'}`}>
+      <div className={`transition-all duration-500 rounded-3xl p-12 text-center shadow-2xl relative overflow-hidden border-8 ${blink ? 'bg-[#e67324] border-white scale-[1.02]' : 'bg-[#1a1a1a] border-[#e67324]'}`}>
         <div className="absolute top-0 right-0 w-96 h-96 bg-white/5 rounded-full -mr-48 -mt-48 pointer-events-none"></div>
         <div className="absolute bottom-0 left-0 w-96 h-96 bg-white/5 rounded-full -ml-48 -mb-48 pointer-events-none"></div>
         
-        <div className="flex flex-col items-center justify-center relative z-10">
-          <h2 className={`text-2xl font-black uppercase tracking-[0.4em] mb-8 transition-colors ${blink ? 'text-white' : 'text-[#e67324]'}`}>
-            {blink ? '🔔 CHAMANDO AGORA' : 'ÚLTIMA CHAMADA'}
-          </h2>
-          
-          {lastCalled ? (
-            <div className="space-y-6">
-              <p className={`text-7xl md:text-9xl font-black text-white tracking-tighter uppercase transition-all duration-300 ${blink ? 'scale-110' : 'scale-100'}`}>
-                {lastCalled.customerName}
-              </p>
-              <div className="inline-flex items-center gap-4 bg-white text-[#1a1a1a] px-12 py-5 rounded-3xl text-4xl font-black shadow-2xl border-b-8 border-gray-200">
-                <span className="text-gray-400 text-sm uppercase tracking-widest mr-2">SENHA</span>
-                <span className="text-[#e67324]">{lastCalled.password}</span>
-              </div>
-              {blink && (
-                <div className="mt-8 flex items-center justify-center gap-4">
-                   <div className="h-1.5 w-12 bg-white/50 rounded-full animate-pulse"></div>
-                   <p className="text-white font-black animate-pulse text-2xl uppercase tracking-widest">Favor dirigir-se ao Atendimento</p>
-                   <div className="h-1.5 w-12 bg-white/50 rounded-full animate-pulse"></div>
-                </div>
-              )}
+        <h2 className="text-2xl font-black text-[#e67324] uppercase tracking-[0.3em] mb-6">ÚLTIMA CHAMADA</h2>
+        {lastCalled ? (
+          <div className="space-y-4">
+            <p className={`text-7xl md:text-9xl font-black text-white tracking-tighter uppercase ${blink ? 'animate-bounce' : ''}`}>
+              {lastCalled.customerName}
+            </p>
+            <div className="inline-block bg-white text-[#1a1a1a] px-10 py-4 rounded-2xl text-3xl font-black shadow-lg">
+              SENHA: <span className="text-[#e67324]">{lastCalled.password}</span>
             </div>
-          ) : (
-            <div className="py-16">
-              <p className="text-4xl font-medium text-white/20 italic tracking-[0.2em] uppercase">Aguardando novo atendimento...</p>
-            </div>
-          )}
-        </div>
+            {blink && <div className="text-white font-bold animate-pulse text-xl mt-4 uppercase">POR FAVOR, COMPAREÇA AO ATENDIMENTO</div>}
+          </div>
+        ) : (
+          <p className="text-4xl font-medium text-white/30 italic py-10 tracking-widest">AGUARDANDO CHAMADA...</p>
+        )}
       </div>
 
       {/* Estatísticas Rápidas */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="bg-white p-6 rounded-3xl shadow-sm border-l-8 border-[#e67324] flex items-center gap-6">
-              <div className="text-[#e67324] text-4xl opacity-30"><i className="fas fa-clock"></i></div>
+          <div className="bg-white p-6 rounded-2xl shadow-sm border-l-4 border-[#e67324] flex items-center gap-4">
+              <div className="text-[#e67324] text-3xl opacity-20"><i className="fas fa-clock"></i></div>
               <div>
-                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Tempo Médio</p>
-                  <p className="text-3xl font-black text-[#1a1a1a] leading-none mt-1">{avgWaitTime} <span className="text-sm font-bold text-gray-400">min</span></p>
+                  <p className="text-[10px] font-black text-gray-400 uppercase">Tempo Médio</p>
+                  <p className="text-2xl font-black text-[#1a1a1a]">{avgWaitTime} <span className="text-sm">min</span></p>
               </div>
           </div>
-          <div className="bg-white p-6 rounded-3xl shadow-sm border-l-8 border-amber-500 flex items-center gap-6">
-              <div className="text-amber-500 text-4xl opacity-30"><i className="fas fa-hourglass-half"></i></div>
+          <div className="bg-white p-6 rounded-2xl shadow-sm border-l-4 border-amber-500 flex items-center gap-4">
+              <div className="text-amber-500 text-3xl opacity-20"><i className="fas fa-hourglass-half"></i></div>
               <div>
-                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Em Espera</p>
-                  <p className="text-3xl font-black text-[#1a1a1a] leading-none mt-1">{waiting.length + inSeparation.length}</p>
+                  <p className="text-[10px] font-black text-gray-400 uppercase">Em Espera</p>
+                  <p className="text-2xl font-black text-[#1a1a1a]">{waiting.length + inSeparation.length}</p>
               </div>
           </div>
-          <div className="bg-white p-6 rounded-3xl shadow-sm border-l-8 border-emerald-500 flex items-center gap-6">
-              <div className="text-emerald-500 text-4xl opacity-30"><i className="fas fa-check-circle"></i></div>
+          <div className="bg-white p-6 rounded-2xl shadow-sm border-l-4 border-emerald-500 flex items-center gap-4">
+              <div className="text-emerald-500 text-3xl opacity-20"><i className="fas fa-check-circle"></i></div>
               <div>
-                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Prontos</p>
-                  <p className="text-3xl font-black text-[#1a1a1a] leading-none mt-1">{ready.length}</p>
+                  <p className="text-[10px] font-black text-gray-400 uppercase">Prontos</p>
+                  <p className="text-2xl font-black text-[#1a1a1a]">{ready.length}</p>
               </div>
           </div>
-          <div className="bg-[#1a1a1a] p-6 rounded-3xl shadow-sm border-l-8 border-[#e67324] flex items-center gap-6 text-white">
-              <div className="text-[#e67324] text-4xl opacity-30"><i className="fas fa-user-check"></i></div>
+          <div className="bg-[#1a1a1a] p-6 rounded-2xl shadow-sm border-l-4 border-[#e67324] flex items-center gap-4 text-white">
+              <div className="text-[#e67324] text-3xl opacity-20"><i className="fas fa-user-check"></i></div>
               <div>
-                  <p className="text-[10px] font-black text-[#e67324] uppercase tracking-widest">Concluídos</p>
-                  <p className="text-3xl font-black leading-none mt-1">{tickets.filter(t => t.status === TicketStatus.FINISHED).length}</p>
+                  <p className="text-[10px] font-black text-[#e67324] uppercase">Finalizados</p>
+                  <p className="text-2xl font-black">{tickets.filter(t => t.status === TicketStatus.FINISHED).length}</p>
               </div>
           </div>
       </div>
 
       {/* Listas de Acompanhamento */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-        <div className="bg-white rounded-[2rem] shadow-xl p-8 border-b-[12px] border-emerald-500 flex flex-col h-[550px]">
+        <div className="bg-white rounded-3xl shadow-xl p-8 border-b-8 border-emerald-500">
           <h3 className="text-xl font-black text-emerald-600 mb-8 border-b-2 border-emerald-50 pb-4 flex justify-between items-center">
-            <span className="tracking-tighter">RETIRADA DISPONÍVEL</span>
-            <span className="bg-emerald-100 text-emerald-700 text-xs px-3 py-1 rounded-full">{ready.length}</span>
+            <span>PRONTOS</span>
+            <i className="fas fa-check-double text-emerald-100 text-3xl"></i>
           </h3>
-          <div className="space-y-4 overflow-y-auto pr-2 custom-scrollbar flex-1">
+          <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2">
             {ready.map(t => (
-              <div key={t.id} className="bg-emerald-50 p-6 rounded-[1.5rem] flex justify-between items-center animate-slideUp border border-emerald-100 shadow-sm hover:scale-[1.02] transition-transform">
+              <div key={t.id} className="bg-emerald-50 p-6 rounded-2xl flex justify-between items-center animate-slideUp border border-emerald-100">
                 <div className="flex-1">
-                  <p className="font-black text-2xl text-emerald-900 tracking-tighter leading-none mb-2 uppercase">{t.customerName}</p>
-                  <p className="text-sm font-bold text-emerald-600 uppercase tracking-[0.2em]">{t.password}</p>
+                  <p className="font-black text-2xl text-emerald-900 tracking-tight leading-none mb-1 uppercase">{t.customerName}</p>
+                  <p className="text-sm font-bold text-emerald-600 uppercase tracking-widest">{t.password}</p>
                 </div>
-                <div className="bg-white w-12 h-12 rounded-2xl flex items-center justify-center text-emerald-500 shadow-inner">
-                  <i className="fas fa-box-check text-xl"></i>
+                <div className="bg-white w-12 h-12 rounded-full flex items-center justify-center text-emerald-500 shadow-sm">
+                  <i className="fas fa-arrow-right"></i>
                 </div>
               </div>
             ))}
-            {ready.length === 0 && (
-              <div className="h-full flex flex-col items-center justify-center text-gray-300 opacity-50">
-                <i className="fas fa-boxes-packing text-6xl mb-4"></i>
-                <p className="font-bold italic uppercase tracking-widest text-center">Nenhum pedido pronto para retirada</p>
-              </div>
-            )}
+            {ready.length === 0 && <p className="text-gray-300 text-center py-10 font-bold italic uppercase tracking-widest">Sem pedidos prontos</p>}
           </div>
         </div>
 
-        <div className="bg-white rounded-[2rem] shadow-xl p-8 border-b-[12px] border-amber-500 flex flex-col h-[550px]">
+        <div className="bg-white rounded-3xl shadow-xl p-8 border-b-8 border-amber-500">
           <h3 className="text-xl font-black text-amber-600 mb-8 border-b-2 border-amber-50 pb-4 flex justify-between items-center">
-            <span className="tracking-tighter">PEDIDO EM SEPARAÇÃO</span>
-            <span className="bg-amber-100 text-amber-700 text-xs px-3 py-1 rounded-full">{inSeparation.length}</span>
+            <span>EM SEPARAÇÃO</span>
+            <i className="fas fa-spinner text-amber-100 text-3xl"></i>
           </h3>
-          <div className="space-y-4 overflow-y-auto pr-2 custom-scrollbar flex-1">
+          <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2">
             {inSeparation.map(t => (
-              <div key={t.id} className="bg-amber-50 p-6 rounded-[1.5rem] flex justify-between items-center border border-amber-100 hover:scale-[1.02] transition-transform">
+              <div key={t.id} className="bg-amber-50 p-6 rounded-2xl flex justify-between items-center border border-amber-100">
                 <div className="flex-1">
-                  <p className="font-black text-xl text-amber-900 tracking-tighter leading-none mb-2 uppercase">{t.customerName}</p>
-                  <p className="text-sm font-bold text-amber-600 uppercase tracking-[0.2em]">{t.password}</p>
+                  <p className="font-black text-xl text-amber-900 tracking-tight leading-none mb-1 uppercase">{t.customerName}</p>
+                  <p className="text-sm font-bold text-amber-600 uppercase tracking-widest">{t.password}</p>
                 </div>
-                <i className="fas fa-spinner-third fa-spin text-amber-300 text-2xl"></i>
+                <i className="fas fa-box-open text-amber-200 animate-pulse text-2xl"></i>
               </div>
             ))}
-            {inSeparation.length === 0 && (
-              <div className="h-full flex flex-col items-center justify-center text-gray-300 opacity-50">
-                <i className="fas fa-conveyor-belt text-6xl mb-4"></i>
-                <p className="font-bold italic uppercase tracking-widest text-center">Nenhuma separação ativa no momento</p>
-              </div>
-            )}
+            {inSeparation.length === 0 && <p className="text-gray-300 text-center py-10 font-bold italic uppercase tracking-widest">Sem separações ativas</p>}
           </div>
         </div>
 
-        <div className="bg-[#1a1a1a] rounded-[2rem] shadow-xl p-8 border-b-[12px] border-[#e67324] flex flex-col h-[550px]">
+        <div className="bg-[#1a1a1a] rounded-3xl shadow-xl p-8 border-b-8 border-[#e67324]">
           <h3 className="text-xl font-black text-[#e67324] mb-8 border-b-2 border-white/5 pb-4 flex justify-between items-center">
-            <span className="tracking-tighter">AGUARDANDO LOGÍSTICA</span>
-            <span className="bg-[#e67324]/20 text-[#e67324] text-xs px-3 py-1 rounded-full">{waiting.length}</span>
+            <span>AGUARDANDO</span>
+            <i className="fas fa-clock text-white/5 text-3xl"></i>
           </h3>
-          <div className="space-y-4 overflow-y-auto pr-2 custom-scrollbar flex-1">
+          <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2">
             {waiting.map(t => (
-              <div key={t.id} className="bg-white/5 p-6 rounded-[1.5rem] flex justify-between items-center border border-white/5 hover:bg-white/10 transition-colors">
+              <div key={t.id} className="bg-white/5 p-6 rounded-2xl flex justify-between items-center border border-white/5">
                 <div className="flex-1">
-                  <p className="font-black text-xl text-white tracking-tighter leading-none mb-2 uppercase">{t.customerName}</p>
-                  <p className="text-sm font-bold text-gray-500 uppercase tracking-[0.2em]">{t.password}</p>
+                  <p className="font-black text-xl text-white tracking-tight leading-none mb-1 uppercase">{t.customerName}</p>
+                  <p className="text-sm font-bold text-gray-500 uppercase tracking-widest">{t.password}</p>
                 </div>
                 {t.priority === Priority.PRIORITY && (
-                  <div className="relative flex h-3 w-3">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
-                  </div>
+                  <div className="w-3 h-3 bg-red-600 rounded-full animate-pulse"></div>
                 )}
               </div>
             ))}
-            {waiting.length === 0 && (
-              <div className="h-full flex flex-col items-center justify-center text-gray-700">
-                <i className="fas fa-clock text-6xl mb-4 opacity-10"></i>
-                <p className="font-bold italic uppercase tracking-widest text-center opacity-40">A fila de espera está vazia</p>
-              </div>
-            )}
+            {waiting.length === 0 && <p className="text-gray-600 text-center py-10 font-bold italic uppercase tracking-widest">Fila vazia</p>}
           </div>
         </div>
       </div>
