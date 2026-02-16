@@ -8,18 +8,9 @@ interface WelcomeScreenProps {
   initialDate: string;
   currentUser: User | null;
   onLogout: () => void;
-  onOpenKeySelection: () => void;
-  hasApiKey: boolean;
 }
 
-const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ 
-  onSelect, 
-  initialDate, 
-  currentUser, 
-  onLogout,
-  onOpenKeySelection,
-  hasApiKey
-}) => {
+const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSelect, initialDate, currentUser, onLogout }) => {
   const [date, setDate] = useState(initialDate);
 
   const modules: { id: AppModule; label: string; icon: any; desc: string; adminOnly?: boolean }[] = [
@@ -60,27 +51,6 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
           <p className="text-gray-400 font-medium text-lg uppercase tracking-widest text-[11px]">Sistema Inteligente de Gestão de Atendimento</p>
         </div>
 
-        {/* Alerta de Chave de API se estiver faltando */}
-        {!hasApiKey && (
-          <div className="bg-amber-500/10 border-2 border-amber-500/50 rounded-2xl p-6 mb-8 flex flex-col md:flex-row items-center justify-between gap-4 animate-pulse">
-            <div className="flex items-center gap-4">
-              <div className="bg-amber-500 text-[#1a1a1a] p-3 rounded-xl">
-                <i className="fas fa-exclamation-triangle text-xl"></i>
-              </div>
-              <div>
-                <h4 className="text-amber-500 font-black text-sm uppercase">Sistema de Voz Desativado</h4>
-                <p className="text-gray-400 text-[10px] font-bold uppercase">É necessário configurar uma Chave de API do Google para habilitar as chamadas por voz.</p>
-              </div>
-            </div>
-            <button 
-              onClick={onOpenKeySelection}
-              className="bg-amber-500 hover:bg-amber-600 text-[#1a1a1a] font-black px-6 py-3 rounded-xl text-[10px] uppercase tracking-widest transition-all shadow-lg active:scale-95"
-            >
-              Configurar Agora
-            </button>
-          </div>
-        )}
-
         <div className="bg-[#2a2a2a] rounded-3xl p-8 border border-[#3a3a3a] shadow-2xl mb-8">
           <div className="flex flex-col md:flex-row items-center gap-6 mb-10 pb-10 border-b border-[#3a3a3a]">
             <div className="flex-1 w-full">
@@ -94,7 +64,7 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
             </div>
             <div className="flex-1 text-center md:text-left">
               <p className="text-gray-500 text-xs font-bold uppercase tracking-wide leading-relaxed">
-                Os registros serão vinculados à data selecionada. Certifique-se de usar a data correta para garantir a integridade dos relatórios e métricas.
+                Os registros serão vinculados à data selecionada. Certifique-se de usar a data correta para garantir a integridade dos relatórios e métricas de desempenho.
               </p>
             </div>
           </div>
