@@ -1,6 +1,6 @@
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Routes, Route, useNavigate } from 'react-router-dom';
 import { Ticket, Priority, TicketStatus, AppModule, User } from './types';
 import ReceptionModule from './components/ReceptionModule';
 import SeparationModule from './components/SeparationModule';
@@ -14,105 +14,74 @@ import { LOGO_URL } from './constants';
 
 const App: React.FC = () => {
   const navigate = useNavigate();
-  const location = useLocation();
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [sessionDate, setSessionDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [activeModule, setActiveModule] = useState<AppModule | null>(null);
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [isSyncing, setIsSyncing] = useState(false);
-  const syncIntervalRef = useRef<number | null>(null);
 
-  // Efeito para garantir que o áudio seja desbloqueado
+  // Desbloqueio de Áudio
   useEffect(() => {
     const unlockAudio = () => {
       const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
       if (ctx.state === 'suspended') ctx.resume();
       window.removeEventListener('click', unlockAudio);
-      window.removeEventListener('touchstart', unlockAudio);
     };
     window.addEventListener('click', unlockAudio);
-    window.addEventListener('touchstart', unlockAudio);
-    return () => {
-      window.removeEventListener('click', unlockAudio);
-      window.removeEventListener('touchstart', unlockAudio);
-    };
+    return () => window.removeEventListener('click', unlockAudio);
   }, []);
 
-  // Carregar sessão de usuário
+  // Carregar Sessão
   useEffect(() => {
     const logged = sessionStorage.getItem('normatel_logged_user');
     if (logged) {
-      try {
-        const user = JSON.parse(logged);
-        setCurrentUser(user);
-      } catch (e) {
-        sessionStorage.removeItem('normatel_logged_user');
-      }
+      try { setCurrentUser(JSON.parse(logged)); } catch (e) { sessionStorage.removeItem('normatel_logged_user'); }
     }
   }, []);
 
-  const fetchData = useCallback(async (showLoader = false) => {
-    if (!sessionDate || !currentUser) return;
-    if (showLoader) setIsSyncing(true);
-    try {
-      const remoteTickets = await DataService.getTickets(sessionDate);
-      if (JSON.stringify(remoteTickets) !== JSON.stringify(tickets)) {
-        setTickets(remoteTickets);
-      }
-    } catch (error) {
-      console.error("Falha na sincronização:", error);
-    } finally {
-      if (showLoader) setIsSyncing(false);
-    }
-  }, [sessionDate, currentUser, tickets]);
-
+  // SINCRONIZAÇÃO EM TEMPO REAL (MÁGICA DO ON-SNAPSHOT)
   useEffect(() => {
+    // Só sincroniza se houver usuário e data, e se não estiver na tela de relatórios (que é histórica)
     if (currentUser && sessionDate && activeModule !== 'reports') {
-      fetchData(true);
-      syncIntervalRef.current = window.setInterval(() => fetchData(false), 10000);
-    } else {
-      if (syncIntervalRef.current) clearInterval(syncIntervalRef.current);
+      setIsSyncing(true);
+      
+      const unsubscribe = DataService.subscribeTickets(sessionDate, (updatedTickets) => {
+        setTickets(updatedTickets);
+        setIsSyncing(false);
+      });
+
+      // Cleanup: Cancela a escuta quando o componente desmonta ou muda a data
+      return () => unsubscribe();
     }
-    return () => {
-      if (syncIntervalRef.current) clearInterval(syncIntervalRef.current);
-    };
-  }, [currentUser, sessionDate, activeModule, fetchData]);
+  }, [currentUser, sessionDate, activeModule]);
 
   const addTicket = useCallback(async (ticketData: Omit<Ticket, 'id' | 'password' | 'arrivalTime' | 'status'>) => {
-    setIsSyncing(true);
-    const tempId = Math.random().toString(36).substr(2, 9);
-    const newTicket: Ticket = {
+    // Gerar senha localmente para feedback imediato se necessário, mas o Firestore gerará o ID real
+    const ticketPayload: Omit<Ticket, 'id'> = {
       ...ticketData,
-      id: tempId,
       password: `${ticketData.priority === Priority.PRIORITY ? 'P' : 'N'}-${(tickets.length + 1).toString().padStart(3, '0')}`,
       arrivalTime: new Date(),
       status: TicketStatus.WAITING_SEPARATION,
     };
-    await DataService.addTicket(sessionDate, newTicket);
-    await fetchData();
-    setIsSyncing(false);
-  }, [tickets, sessionDate, fetchData]);
+    await DataService.addTicket(sessionDate, ticketPayload);
+  }, [tickets, sessionDate]);
 
   const updateTicketStatus = useCallback(async (id: string, newStatus: TicketStatus) => {
-    setIsSyncing(true);
     const ticket = tickets.find(t => t.id === id);
     if (!ticket) return;
-    const update: Partial<Ticket> = { status: newStatus };
+    
+    const update: any = { status: newStatus };
     if (newStatus === TicketStatus.IN_SEPARATION) update.separationStartTime = new Date();
     if (newStatus === TicketStatus.READY) update.separationEndTime = new Date();
     if (newStatus === TicketStatus.CALLED) update.callTime = new Date();
     if (newStatus === TicketStatus.FINISHED) update.finishTime = new Date();
+    
     await DataService.updateTicket(sessionDate, { ...ticket, ...update });
-    await fetchData();
-    setIsSyncing(false);
-  }, [tickets, sessionDate, fetchData]);
+  }, [tickets, sessionDate]);
 
   const removeTicket = useCallback(async (id: string) => {
-    setIsSyncing(true);
     await DataService.deleteTicket(sessionDate, id);
-    await fetchData();
-    setIsSyncing(false);
-  }, [sessionDate, fetchData]);
+  }, [sessionDate]);
 
   const handleLogin = (user: User) => {
     setCurrentUser(user);
@@ -132,7 +101,7 @@ const App: React.FC = () => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-20 items-center">
             <div className="flex items-center gap-6 cursor-pointer" onClick={() => setActiveModule(null)}>
-              <div className="bg-white p-1 rounded-lg flex items-center justify-center h-6 shadow-inner border border-[#e67324]">
+              <div className="bg-white p-1 rounded-lg flex items-center justify-center h-8 shadow-inner border border-[#e67324]">
                 <img src={LOGO_URL} alt="Normatel Logo" className="h-full w-auto object-contain" />
               </div>
               <div className="hidden sm:block border-l border-white/10 pl-4">
@@ -140,7 +109,7 @@ const App: React.FC = () => {
                   <h1 className="text-lg font-black tracking-tight leading-none uppercase">GESTOR</h1>
                   {isSyncing && <i className="fas fa-sync fa-spin text-[10px] text-[#e67324]"></i>}
                 </div>
-                <p className="text-[10px] text-[#e67324] font-bold uppercase tracking-widest mt-1">Painel Operacional</p>
+                <p className="text-[10px] text-[#e67324] font-bold uppercase tracking-widest mt-1">Nuvem Ativa</p>
               </div>
             </div>
             <nav className="hidden lg:flex items-center space-x-2">
@@ -162,10 +131,10 @@ const App: React.FC = () => {
         {children}
       </main>
       <footer className="bg-white border-t border-gray-200 py-4 px-6 flex justify-between items-center text-gray-400 text-[9px] uppercase font-bold tracking-widest">
-        <span>Normatel Home Center • Sessão: {sessionDate} • Usuário: {currentUser?.name}</span>
+        <span>Sessão: {sessionDate} • Usuário: {currentUser?.name}</span>
         <div className="flex items-center gap-2">
-           <div className={`w-2 h-2 rounded-full ${isSyncing ? 'bg-[#e67324] animate-pulse' : 'bg-emerald-500'}`}></div>
-           <span>{isSyncing ? 'Sincronizando Nuvem...' : 'Conectado'}</span>
+           <div className={`w-2 h-2 rounded-full ${isSyncing ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500'}`}></div>
+           <span>{isSyncing ? 'Atualizando...' : 'Sincronizado'}</span>
         </div>
       </footer>
     </div>
@@ -195,15 +164,7 @@ const App: React.FC = () => {
           </Layout>
         )
       } />
-      <Route path="*" element={
-        <div className="min-h-screen flex flex-col items-center justify-center bg-[#1a1a1a] text-white p-8">
-          <h1 className="text-6xl font-black text-[#e67324] mb-4">404</h1>
-          <p className="text-xl font-bold uppercase tracking-widest mb-8">Página não encontrada</p>
-          <button onClick={() => navigate('/')} className="bg-[#e67324] text-white px-8 py-4 rounded-xl font-black uppercase tracking-widest">
-            Voltar para o Início
-          </button>
-        </div>
-      } />
+      <Route path="*" element={<div className="p-20 text-center font-bold">Página não encontrada. <button onClick={() => navigate('/')}>Voltar</button></div>} />
     </Routes>
   );
 };

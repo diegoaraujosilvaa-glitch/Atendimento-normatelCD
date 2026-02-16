@@ -4,7 +4,7 @@ import {
   collection, 
   query, 
   where, 
-  getDocs, 
+  onSnapshot, 
   addDoc, 
   updateDoc, 
   deleteDoc, 
@@ -17,7 +17,7 @@ import {
 import { Ticket, User } from '../types';
 
 /**
- * DataService - Camada de Abstração de Dados via Firebase Firestore
+ * DataService - Camada de Abstração de Dados via Firebase Firestore (Tempo Real)
  */
 class DataService {
   
@@ -33,52 +33,48 @@ class DataService {
   }
 
   /**
-   * Função solicitada: getAtendimentos
-   * Busca documentos da coleção "atendimentos"
+   * Assina atualizações em tempo real para a coleção "atendimentos"
    */
-  static async getAtendimentos() {
-    try {
-      const q = query(collection(db, "atendimentos"), orderBy("criadoEm", "desc"), limit(50));
-      const snapshot = await getDocs(q);
-      return snapshot.docs.map(doc => ({
+  static subscribeAtendimentos(callback: (data: any[]) => void) {
+    const q = query(collection(db, "atendimentos"), orderBy("criadoEm", "desc"), limit(50));
+    return onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({
         id: doc.id,
-        nome: doc.data().nome,
-        status: doc.data().status,
-        criadoEm: doc.data().criadoEm instanceof Timestamp ? doc.data().criadoEm.toDate() : doc.data().criadoEm
+        ...this.parseFirestoreData(doc.data())
       }));
-    } catch (error) {
-      console.error("Erro ao buscar atendimentos:", error);
-      return [];
-    }
+      callback(data);
+    });
   }
 
-  // --- TICKETS (Integração com o App Atual) ---
+  /**
+   * Assina atualizações em tempo real para os tickets da data selecionada
+   */
+  static subscribeTickets(date: string, callback: (tickets: Ticket[]) => void) {
+    const q = query(
+      collection(db, "tickets"), 
+      where("sessionDate", "==", date),
+      orderBy("arrivalTime", "asc")
+    );
 
-  static async getTickets(date: string): Promise<Ticket[]> {
-    try {
-      const q = query(
-        collection(db, "tickets"), 
-        where("sessionDate", "==", date),
-        orderBy("arrivalTime", "asc")
-      );
-      const querySnapshot = await getDocs(q);
-      const tickets: Ticket[] = [];
-      querySnapshot.forEach((doc) => {
-        tickets.push({ id: doc.id, ...this.parseFirestoreData(doc.data()) } as Ticket);
-      });
-      return tickets;
-    } catch (e) {
-      console.error("Erro ao buscar tickets:", e);
-      return [];
-    }
+    return onSnapshot(q, (snapshot) => {
+      const tickets = snapshot.docs.map(doc => ({
+        id: doc.id, 
+        ...this.parseFirestoreData(doc.data()) 
+      } as Ticket));
+      callback(tickets);
+    }, (error) => {
+      console.error("Erro na escuta em tempo real:", error);
+    });
   }
+
+  // --- MÉTODOS DE ESCRITA ---
 
   static async addTicket(date: string, ticket: Omit<Ticket, 'id'>): Promise<void> {
     try {
-      // Converte datas para Timestamp antes de salvar
       const payload = {
         ...ticket,
         sessionDate: date,
+        // Garante que o Firestore salve como Timestamp para ordenação correta
         arrivalTime: Timestamp.fromDate(new Date())
       };
       await addDoc(collection(db, "tickets"), payload);
@@ -93,6 +89,7 @@ class DataService {
       const ticketRef = doc(db, "tickets", id);
       
       const payload: any = { ...data };
+      // Converte quaisquer objetos Date de volta para Timestamp antes do update
       Object.keys(payload).forEach(key => {
         if (payload[key] instanceof Date) {
           payload[key] = Timestamp.fromDate(payload[key]);
@@ -115,14 +112,11 @@ class DataService {
 
   // --- USUÁRIOS ---
 
-  static async getUsers(): Promise<User[]> {
-    try {
-      const snapshot = await getDocs(collection(db, "users"));
-      return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
-    } catch (e) {
-      console.error("Erro ao buscar usuários:", e);
-      return [];
-    }
+  static subscribeUsers(callback: (users: User[]) => void) {
+    return onSnapshot(collection(db, "users"), (snapshot) => {
+      const users = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
+      callback(users);
+    });
   }
 
   static async saveUser(user: User): Promise<void> {
