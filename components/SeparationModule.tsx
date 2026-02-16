@@ -1,6 +1,6 @@
-
 import React from 'react';
 import { Ticket, TicketStatus, Priority } from '../types';
+import { announceCustomerCall } from '../services/geminiService';
 
 interface SeparationModuleProps {
   tickets: Ticket[];
@@ -21,9 +21,13 @@ const SeparationModule: React.FC<SeparationModuleProps> = ({ tickets, onUpdateSt
   const ready = sortTickets(tickets.filter(t => t.status === TicketStatus.READY));
   const called = sortTickets(tickets.filter(t => t.status === TicketStatus.CALLED));
 
-  const handleCall = (ticket: Ticket) => {
-    // Apenas atualiza o status. O Painel TV (CustomerDashboard) detectará a mudança e falará.
+  const handleCall = async (ticket: Ticket) => {
+    // 1. Atualiza o status no Firestore
     onUpdateStatus(ticket.id, TicketStatus.CALLED);
+    
+    // 2. Dispara a voz IMEDIATAMENTE no contexto do clique (User Interaction)
+    // Isso garante que o áudio seja reproduzido com sucesso no navegador atual.
+    await announceCustomerCall(ticket.customerName, ticket.password, ticket.id);
   };
 
   const handleFinish = (id: string) => {

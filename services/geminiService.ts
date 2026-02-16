@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Modality } from "@google/genai";
 
 /**
@@ -32,7 +33,6 @@ async function decodeAudioData(
   sampleRate: number,
   numChannels: number,
 ): Promise<AudioBuffer> {
-  // Converte o buffer bruto para Int16Array conforme o formato PCM 16-bit da API
   const dataInt16 = new Int16Array(data.buffer);
   const frameCount = dataInt16.length / numChannels;
   const buffer = ctx.createBuffer(numChannels, frameCount, sampleRate);
@@ -40,7 +40,6 @@ async function decodeAudioData(
   for (let channel = 0; channel < numChannels; channel++) {
     const channelData = buffer.getChannelData(channel);
     for (let i = 0; i < frameCount; i++) {
-      // Normalização: Converter Int16 (-32768 a 32767) para Float32 (-1.0 a 1.0)
       channelData[i] = dataInt16[i * numChannels + channel] / 32768.0;
     }
   }
@@ -52,7 +51,8 @@ async function decodeAudioData(
  */
 const speakWithGemini = async (text: string): Promise<void> => {
   try {
-    // Instanciação dinâmica conforme regras para garantir chave atualizada
+    // A chave de API deve ser obtida exclusivamente de process.env.API_KEY conforme as diretrizes.
+    // Inicializamos uma nova instância de GoogleGenAI imediatamente antes da chamada.
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     
     if (!audioContext) {
@@ -63,6 +63,7 @@ const speakWithGemini = async (text: string): Promise<void> => {
       await audioContext.resume();
     }
 
+    // Chamada ao modelo gemini-2.5-flash-preview-tts seguindo as diretrizes de geração de áudio.
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash-preview-tts",
       contents: [{ parts: [{ text }] }],
@@ -70,12 +71,13 @@ const speakWithGemini = async (text: string): Promise<void> => {
         responseModalities: [Modality.AUDIO],
         speechConfig: {
           voiceConfig: {
-            prebuiltVoiceConfig: { voiceName: 'Kore' }, // 'Kore' é excelente para português
+            prebuiltVoiceConfig: { voiceName: 'Kore' }, 
           },
         },
       },
     });
 
+    // Extração do áudio base64 diretamente da parte inlineData conforme as diretrizes do SDK.
     const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
     
     if (!base64Audio) {
@@ -96,21 +98,17 @@ const speakWithGemini = async (text: string): Promise<void> => {
 
   } catch (error) {
     console.error("[GEMINI-TTS] Falha na síntese de voz:", error);
-    // Fallback silencioso em caso de erro para não travar a UI
   }
 };
 
 /**
- * Anuncia a chamada do cliente: Sequência de duas chamadas claras e sequenciais.
- * Ex: "Senha P-001, DIEGO SILVA" -> Pausa -> "Repetindo: Senha P-001, DIEGO SILVA. Favor comparecer..."
+ * Anuncia a chamada do cliente.
  */
 export const announceCustomerCall = async (customerName: string, password: string, ticketId: string) => {
   const now = Date.now();
   const lastCallTime = callLockMap.get(ticketId) || 0;
 
-  // Prevenção de sobreposição e spam de chamadas
   if (isGlobalSpeaking || (now - lastCallTime < 4000)) {
-    console.warn(`[VOZ] Chamada ignorada: ${customerName} (Sinal ocupado ou chamado recentemente)`);
     return;
   }
 
@@ -118,24 +116,17 @@ export const announceCustomerCall = async (customerName: string, password: strin
   callLockMap.set(ticketId, now);
 
   try {
-    console.log(`[VOZ] Iniciando anúncio profissional para: ${customerName}`);
-    
-    const passwordForVoice = password.split('').join(' '); // Melhora a dicção das senhas (P 0 0 1)
+    const passwordForVoice = password.split('').join(' ');
     const fullName = customerName.toUpperCase();
 
-    // 1ª CHAMADA: Curta e direta para atenção imediata
+    // Sequência de anúncios para garantir que o cliente ouça a senha.
     await speakWithGemini(`Atenção: Senha ${passwordForVoice}. ${fullName}.`);
-    
-    // Pequena pausa natural entre anúncios
     await new Promise(r => setTimeout(r, 1500));
-
-    // 2ª CHAMADA: Completa com instrução de destino
     await speakWithGemini(`Repetindo: Senha ${passwordForVoice}. ${fullName}. Favor comparecer ao atendimento externo.`);
 
   } catch (error) {
     console.error("[VOZ] Erro na sequência de anúncios:", error);
   } finally {
     isGlobalSpeaking = false;
-    console.log(`[VOZ] Sequência finalizada para: ${customerName}`);
   }
 };
