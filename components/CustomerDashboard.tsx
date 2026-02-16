@@ -10,7 +10,7 @@ interface CustomerDashboardProps {
 const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ tickets = [] }) => {
   const [lastCalled, setLastCalled] = useState<Ticket | null>(null);
   const [blink, setBlink] = useState(false);
-  // Armazena a última data de chamada anunciada para cada ticket ID
+  // 4. Estabilidade do React: Armazena a última data de chamada anunciada para cada ticket ID para evitar re-disparos no re-render
   const announcedTimestampsRef = useRef<Map<string, number>>(new Map());
   
   // Efeito para detectar novos chamados e anunciar via voz
@@ -33,12 +33,15 @@ const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ tickets = [] }) =
       // Verifica se é uma chamada nova ou uma rechamada (horário diferente)
       const lastAnnouncedTime = announcedTimestampsRef.current.get(mostRecent.id) || 0;
 
+      // Só dispara se o timestamp de chamada no banco de dados for superior ao último que falamos localmente
       if (mostRecentTime > lastAnnouncedTime) {
         setLastCalled(mostRecent);
         setBlink(true);
         
-        // Disparar voz (Fila garantida no serviço)
+        // Disparar voz (Fila e cancelamento tratados no serviço)
         announceCustomerCall(mostRecent.customerName);
+        
+        // Atualiza o ref imediatamente para evitar re-disparo em re-renders paralelos
         announcedTimestampsRef.current.set(mostRecent.id, mostRecentTime);
 
         const timer = setTimeout(() => setBlink(false), 8000);
