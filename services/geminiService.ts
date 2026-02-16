@@ -1,14 +1,14 @@
 
-import { GoogleGenAI, Modality } from "@google/genai";
+import { GoogleGenAI, Modality, GenerateContentResponse } from "@google/genai";
 
-// Controle de execução e estado global para evitar chamadas sobrepostas ou infinitas
+// Estado global para controle de chamadas
 let isGlobalSpeaking = false;
 let currentTicketId = "";
-const callLockMap = new Map<string, number>(); // ID do Ticket -> Timestamp da última chamada realizada
+const callLockMap = new Map<string, number>();
 let globalAudioContext: AudioContext | null = null;
 
 /**
- * Seleciona rigorosamente uma voz feminina em português disponível no navegador.
+ * Busca rigorosa por uma voz feminina em português (pt-BR).
  */
 const getPortugueseFemaleVoice = (): SpeechSynthesisVoice | null => {
   if (!('speechSynthesis' in window)) return null;
@@ -18,55 +18,67 @@ const getPortugueseFemaleVoice = (): SpeechSynthesisVoice | null => {
   
   if (ptBRVoices.length === 0) return null;
 
-  // Tenta encontrar uma voz feminina filtrando palavras-chave masculinas conhecidas
-  const femaleVoices = ptBRVoices.filter(v => 
+  // 1. Prioridade para nomes de vozes femininas conhecidas
+  const priorityNames = ['Maria', 'Heloisa', 'Luciana', 'Francisca', 'Vitoria', 'Yara'];
+  const femaleByPriority = ptBRVoices.find(v => 
+    priorityNames.some(name => v.name.toLowerCase().includes(name.toLowerCase()))
+  );
+  if (femaleByPriority) return femaleByPriority;
+
+  // 2. Filtro por exclusão de termos masculinos
+  const femaleByExclusion = ptBRVoices.filter(v => 
     !v.name.toLowerCase().includes('masculino') && 
     !v.name.toLowerCase().includes('male') &&
     !v.name.toLowerCase().includes('daniel') &&
     !v.name.toLowerCase().includes('felipe') &&
-    !v.name.toLowerCase().includes('google português do brasil') // Geralmente é Daniel/Masculino
+    !v.name.toLowerCase().includes('google português do brasil') // Geralmente é Daniel
   );
 
-  // Retorna a primeira voz feminina ou a primeira PT-BR disponível (Maria, Heloísa, etc)
-  return femaleVoices.length > 0 ? femaleVoices[0] : ptBRVoices[0];
+  return femaleByExclusion.length > 0 ? femaleByExclusion[0] : ptBRVoices[0];
 };
 
 /**
- * Função de síntese nativa simplificada para usar voz feminina padrão do navegador.
+ * Fala um texto usando a API nativa do navegador e retorna uma Promise.
  */
-const speakNative = (text: string, ticketId: string, customerName: string) => {
-  if (!('speechSynthesis' in window)) return;
+const speakNativeUtterance = (text: string): Promise<void> => {
+  return new Promise((resolve) => {
+    if (!('speechSynthesis' in window)) return resolve();
 
-  // Interrompe qualquer fala anterior pendente para garantir a clareza
-  window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    const voice = getPortugueseFemaleVoice();
+    
+    if (voice) utterance.voice = voice;
+    utterance.lang = 'pt-BR';
+    utterance.rate = 0.9; 
+    utterance.pitch = 1.0;
 
-  const voice = getPortugueseFemaleVoice();
-  const utterance = new SpeechSynthesisUtterance(text);
+    utterance.onend = () => {
+      window.speechSynthesis.cancel(); // Limpeza rigorosa
+      resolve();
+    };
+    utterance.onerror = () => {
+      window.speechSynthesis.cancel();
+      resolve();
+    };
+
+    window.speechSynthesis.speak(utterance);
+  });
+};
+
+/**
+ * Executa a sequência de 2 repetições nativas solicitada.
+ */
+const speakNativeSequence = async (customerName: string) => {
+  window.speechSynthesis.cancel(); // Garante silêncio inicial
   
-  if (voice) {
-    utterance.voice = voice;
-  }
+  // Primeira chamada
+  await speakNativeUtterance(`Atenção: ${customerName}.`);
   
-  utterance.lang = 'pt-BR';
-  utterance.rate = 0.95; // Velocidade natural e profissional para atendimento
-  utterance.pitch = 1.0;
-
-  console.log("Chamando cliente no Painel TV (Voz Feminina):", customerName);
-
-  utterance.onstart = () => {
-    isGlobalSpeaking = true;
-    currentTicketId = ticketId;
-  };
-
-  const cleanUp = () => {
-    isGlobalSpeaking = false;
-    currentTicketId = "";
-  };
-
-  utterance.onend = cleanUp;
-  utterance.onerror = cleanUp;
-
-  window.speechSynthesis.speak(utterance);
+  // Intervalo de 1 segundo entre repetições
+  await new Promise(r => setTimeout(r, 1000));
+  
+  // Segunda chamada com instrução de destino
+  await speakNativeUtterance(`${customerName}. Por favor, comparecer ao Atendimento Externo. Seu pedido está pronto.`);
 };
 
 function decode(base64: string) {
@@ -100,52 +112,77 @@ async function decodeAudioData(
 
 /**
  * Anuncia a chamada do cliente no Painel TV.
- * Requisitos: Voz feminina e exatamente 2 repetições do nome.
  */
 export const announceCustomerCall = async (customerName: string, ticketId: string) => {
   const now = Date.now();
   const lastCallTime = callLockMap.get(ticketId) || 0;
 
-  // Trava de 10 segundos para evitar disparos em loop por re-render do componente
-  if (now - lastCallTime < 10000) {
-    return;
-  }
-
-  // Singleton: se já estiver chamando este ticket, ignora o comando duplicado
+  // Lock de 10 segundos para evitar re-anúncios frenéticos
+  if (now - lastCallTime < 10000) return;
   if (isGlobalSpeaking && currentTicketId === ticketId) return;
 
   callLockMap.set(ticketId, now);
+  isGlobalSpeaking = true;
+  currentTicketId = ticketId;
 
-  // Texto com exatamente 2 repetições do nome do cliente conforme solicitado
-  const promptText = `Atenção: ${customerName}. ${customerName}. Por favor, comparecer ao Atendimento Externo. Seu pedido está pronto.`;
-
-  // Se não houver chave de API, usa voz nativa feminina do navegador (Prioridade de conformidade)
+  // Fallback imediato se não houver API Key
   if (!process.env.API_KEY || process.env.API_KEY === 'undefined' || process.env.API_KEY === '') {
-    speakNative(promptText, ticketId, customerName);
+    await speakNativeSequence(customerName);
+    isGlobalSpeaking = false;
+    currentTicketId = "";
     return;
   }
 
-  try {
-    // Interrompe sínteses nativas antes de disparar Gemini para não sobrepor áudios
-    window.speechSynthesis.cancel();
-
+  // Tenta usar Gemini com timeout de 2 segundos
+  const geminiPromise = (async () => {
+    // Inicialização conforme as diretrizes do SDK @google/genai
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    const response = await ai.models.generateContent({
+    const fullText = `Atenção: ${customerName}. ${customerName}. Por favor, comparecer ao Atendimento Externo. Seu pedido está pronto.`;
+    
+    // Uso explícito do tipo GenerateContentResponse para conformidade com as diretrizes
+    const response: GenerateContentResponse = await ai.models.generateContent({
       model: "gemini-2.5-flash-preview-tts",
-      contents: [{ parts: [{ text: promptText }] }],
+      contents: [{ parts: [{ text: fullText }] }],
       config: {
         responseModalities: [Modality.AUDIO],
         speechConfig: {
-          voiceConfig: {
-            // Zephyr é utilizada para tentar manter um perfil mais feminino/neutro no Gemini TTS
-            prebuiltVoiceConfig: { voiceName: 'Zephyr' }, 
-          },
+          voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Zephyr' } },
         },
       },
     });
 
     const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+    if (!base64Audio) throw new Error("No audio data");
+
+    if (!globalAudioContext) {
+      globalAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
+    }
+    if (globalAudioContext.state === 'suspended') await globalAudioContext.resume();
+
+    // Decodificação de áudio PCM bruto conforme exemplo da API
+    const audioBuffer = await decodeAudioData(decode(base64Audio), globalAudioContext, 24000, 1);
+    const source = globalAudioContext.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(globalAudioContext.destination);
     
-    if (base64Audio) {
-      if (!globalAudioContext) {
-        globalAudioContext = new (window.AudioContext || (window as
+    return new Promise<void>((resolve) => {
+      source.onended = () => resolve();
+      window.speechSynthesis.cancel(); // Silencia o nativo se o digital começar
+      source.start(0);
+    });
+  })();
+
+  const timeoutPromise = new Promise<void>((_, reject) => 
+    setTimeout(() => reject(new Error("Timeout Gemini")), 2000)
+  );
+
+  try {
+    await Promise.race([geminiPromise, timeoutPromise]);
+  } catch (error) {
+    console.warn("Fallback para Voz Nativa acionado:", error instanceof Error ? error.message : 'Erro desconhecido');
+    await speakNativeSequence(customerName);
+  } finally {
+    isGlobalSpeaking = false;
+    currentTicketId = "";
+  }
+};
