@@ -1,7 +1,6 @@
-
 // Importação corrigida para o SDK Modular do Firebase (v9+)
-import { initializeApp } from "firebase/app";
-import { getFirestore } from "firebase/firestore";
+import { initializeApp } from 'firebase/app';
+import { getFirestore } from 'firebase/firestore';
 
 // Configuração do Firebase para o projeto Normatel Home Center
 const firebaseConfig = {

@@ -10,13 +10,14 @@ interface CustomerDashboardProps {
 const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ tickets = [] }) => {
   const [lastCalled, setLastCalled] = useState<Ticket | null>(null);
   const [blink, setBlink] = useState(false);
-  // Estabilidade do React: Armazena a última data de chamada anunciada para cada ticket ID
+  
+  // Referência para evitar re-anunciar tickets que já foram detectados neste ciclo de renderização
   const announcedTimestampsRef = useRef<Map<string, number>>(new Map());
   
   useEffect(() => {
     if (!tickets || tickets.length === 0) return;
 
-    // Filtra e ordena tickets chamados pelo horário mais recente
+    // Filtra tickets com status CALLED e ordena pela hora da chamada (mais recente primeiro)
     const calledTickets = tickets
       .filter(t => t.status === TicketStatus.CALLED && t.callTime)
       .sort((a, b) => {
@@ -28,25 +29,26 @@ const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ tickets = [] }) =
     if (calledTickets.length > 0) {
       const mostRecent = calledTickets[0];
       const mostRecentTime = new Date(mostRecent.callTime!).getTime();
-      
       const lastAnnouncedTime = announcedTimestampsRef.current.get(mostRecent.id) || 0;
 
-      // Só dispara se o timestamp for novo ou superior ao último anunciado localmente
+      // Dispara o anúncio apenas se for uma nova chamada detectada pelo timestamp
       if (mostRecentTime > lastAnnouncedTime) {
         setLastCalled(mostRecent);
         setBlink(true);
         
-        // Passa o ID para que o serviço gerencie a trava singleton
+        // CHAMA O SERVIÇO CENTRALIZADO - Única fonte de áudio do sistema
         announceCustomerCall(mostRecent.customerName, mostRecent.id);
         
         announcedTimestampsRef.current.set(mostRecent.id, mostRecentTime);
 
+        // Remove o efeito visual de destaque após 8 segundos
         const timer = setTimeout(() => setBlink(false), 8000);
         return () => clearTimeout(timer);
       }
     }
   }, [tickets]);
 
+  // Memorização das listas para performance
   const ready = useMemo(() => tickets.filter(t => t.status === TicketStatus.READY), [tickets]);
   const inSeparation = useMemo(() => tickets.filter(t => t.status === TicketStatus.IN_SEPARATION), [tickets]);
   const waiting = useMemo(() => tickets.filter(t => t.status === TicketStatus.WAITING_SEPARATION), [tickets]);
@@ -65,7 +67,7 @@ const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ tickets = [] }) =
   return (
     <div className="flex flex-col gap-8 min-h-[80vh] animate-fadeIn relative">
       
-      {/* Última Chamada - Destaque Principal */}
+      {/* Última Chamada - Destaque Principal do Painel TV */}
       <div className={`transition-all duration-500 rounded-3xl p-12 text-center shadow-2xl relative overflow-hidden border-8 ${blink ? 'bg-[#e67324] border-white scale-[1.02]' : 'bg-[#1a1a1a] border-[#e67324]'}`}>
         <div className="absolute top-0 right-0 w-96 h-96 bg-white/5 rounded-full -mr-48 -mt-48 pointer-events-none"></div>
         <div className="absolute bottom-0 left-0 w-96 h-96 bg-white/5 rounded-full -ml-48 -mb-48 pointer-events-none"></div>
@@ -79,14 +81,14 @@ const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ tickets = [] }) =
             <div className="inline-block bg-white text-[#1a1a1a] px-10 py-4 rounded-2xl text-3xl font-black shadow-lg">
               SENHA: <span className="text-[#e67324]">{lastCalled.password}</span>
             </div>
-            {blink && <div className="text-white font-bold animate-pulse text-xl mt-4 uppercase">POR FAVOR, COMPAREÇA AO ATENDIMENTO</div>}
+            {blink && <div className="text-white font-bold animate-pulse text-xl mt-4 uppercase tracking-wider">POR FAVOR, COMPAREÇA AO ATENDIMENTO</div>}
           </div>
         ) : (
           <p className="text-4xl font-medium text-white/30 italic py-10 tracking-widest">AGUARDANDO CHAMADA...</p>
         )}
       </div>
 
-      {/* Estatísticas Rápidas */}
+      {/* Grid de Estatísticas */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div className="bg-white p-6 rounded-2xl shadow-sm border-l-4 border-[#e67324] flex items-center gap-4">
               <div className="text-[#e67324] text-3xl opacity-20"><i className="fas fa-clock"></i></div>
@@ -118,11 +120,11 @@ const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ tickets = [] }) =
           </div>
       </div>
 
-      {/* Listas de Acompanhamento */}
+      {/* Listas Laterais */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
         <div className="bg-white rounded-3xl shadow-xl p-8 border-b-8 border-emerald-500">
           <h3 className="text-xl font-black text-emerald-600 mb-8 border-b-2 border-emerald-50 pb-4 flex justify-between items-center">
-            <span>PRONTOS</span>
+            <span>PEDIDOS PRONTOS</span>
             <i className="fas fa-check-double text-emerald-100 text-3xl"></i>
           </h3>
           <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2">

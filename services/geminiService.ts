@@ -1,112 +1,107 @@
+import { GoogleGenAI, Modality } from "@google/genai";
 
 /**
- * SERVIÇO DE VOZ NATIVO (REPLACING GEMINI TTS)
- * Focado em estabilidade, voz feminina e eliminação de conflitos de áudio.
+ * SERVIÇO DE ÁUDIO CENTRALIZADO COM GEMINI TTS
+ * Utiliza o modelo gemini-2.5-flash-preview-tts para locução profissional.
  */
 
-// Estado global para controle de chamadas
+// Estado global de travamento para evitar chamadas sobrepostas ou disparos múltiplos
 let isGlobalSpeaking = false;
-let currentTicketId = "";
 const callLockMap = new Map<string, number>();
 
-/**
- * Busca rigorosa por uma voz feminina em português (pt-BR) no navegador.
- * Filtra nomes masculinos e prioriza nomes femininos comuns.
- */
-const getPortugueseFemaleVoice = (): SpeechSynthesisVoice | null => {
-  if (!('speechSynthesis' in window)) return null;
-  
-  const voices = window.speechSynthesis.getVoices();
-  const ptBRVoices = voices.filter(v => v.lang.includes('pt-BR') || v.lang.includes('pt_BR'));
-  
-  if (ptBRVoices.length === 0) return null;
+// Funções de decodificação de áudio (PCM raw do Gemini)
+function decode(base64: string) {
+  const binaryString = atob(base64);
+  const len = binaryString.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes;
+}
 
-  // 1. Prioridade para nomes de vozes reconhecidamente femininas
-  const femaleNames = ['Maria', 'Heloisa', 'Luciana', 'Francisca', 'Vitoria', 'Yara', 'Zira', 'Helena', 'Joana'];
-  const femaleByPriority = ptBRVoices.find(v => 
-    femaleNames.some(name => v.name.toLowerCase().includes(name.toLowerCase()))
-  );
-  if (femaleByPriority) return femaleByPriority;
+async function decodeAudioData(
+  data: Uint8Array,
+  ctx: AudioContext,
+  sampleRate: number,
+  numChannels: number,
+): Promise<AudioBuffer> {
+  const dataInt16 = new Int16Array(data.buffer);
+  const frameCount = dataInt16.length / numChannels;
+  const buffer = ctx.createBuffer(numChannels, frameCount, sampleRate);
 
-  // 2. Filtro por exclusão de termos masculinos conhecidos
-  const femaleByExclusion = ptBRVoices.filter(v => 
-    !v.name.toLowerCase().includes('masculino') && 
-    !v.name.toLowerCase().includes('male') &&
-    !v.name.toLowerCase().includes('daniel') &&
-    !v.name.toLowerCase().includes('felipe') &&
-    !v.name.toLowerCase().includes('google português do brasil')
-  );
-
-  return femaleByExclusion.length > 0 ? femaleByExclusion[0] : ptBRVoices[0];
-};
-
-/**
- * Cria e configura uma instância de SpeechSynthesisUtterance.
- */
-const createUtterance = (text: string, onEnd: () => void): SpeechSynthesisUtterance => {
-  const utterance = new SpeechSynthesisUtterance(text);
-  const voice = getPortugueseFemaleVoice();
-  
-  if (voice) utterance.voice = voice;
-  utterance.lang = 'pt-BR';
-  utterance.rate = 0.85; // Velocidade levemente reduzida para clareza
-  utterance.pitch = 1.0;
-
-  utterance.onend = () => {
-    onEnd();
-  };
-  
-  utterance.onerror = () => {
-    onEnd();
-  };
-
-  return utterance;
-};
+  for (let channel = 0; channel < numChannels; channel++) {
+    const channelData = buffer.getChannelData(channel);
+    for (let i = 0; i < frameCount; i++) {
+      channelData[i] = dataInt16[i * numChannels + channel] / 32768.0;
+    }
+  }
+  return buffer;
+}
 
 /**
- * Anuncia a chamada do cliente no Painel TV usando síntese nativa.
- * Realiza 2 chamadas do nome com intervalo de 500ms.
+ * Anuncia a chamada do cliente usando Gemini TTS.
+ * REQUISITOS: 
+ * 1. Voz profissional do Gemini.
+ * 2. Lock global para evitar duplicidade.
  */
 export const announceCustomerCall = async (customerName: string, ticketId: string) => {
-  if (!('speechSynthesis' in window)) {
-    console.error("Navegador não suporta síntese de voz.");
-    return;
-  }
-
   const now = Date.now();
   const lastCallTime = callLockMap.get(ticketId) || 0;
 
-  // Prevenção de chamadas duplicadas (lock de 10 segundos)
+  // Trava de segurança: impede que o mesmo ticket seja chamado em menos de 10 segundos
   if (now - lastCallTime < 10000) return;
-  if (isGlobalSpeaking && currentTicketId === ticketId) return;
+  if (isGlobalSpeaking) return;
 
-  // Cancela qualquer áudio pendente imediatamente
-  window.speechSynthesis.cancel();
-
-  callLockMap.set(ticketId, now);
   isGlobalSpeaking = true;
-  currentTicketId = ticketId;
+  callLockMap.set(ticketId, now);
 
-  const cleanUp = () => {
-    isGlobalSpeaking = false;
-    currentTicketId = "";
-  };
+  try {
+    // Instancia o Gemini API
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    
+    // Constrói o texto da chamada com pausa estratégica
+    const prompt = `Diga de forma clara e profissional: ${customerName}. [pausa de 1 segundo] ${customerName}, por favor, comparecer ao Atendimento Externo.`;
 
-  // Primeira Chamada (Apenas o nome)
-  const firstUtterance = createUtterance(`Atenção: ${customerName}.`, () => {
-    // Intervalo de 500ms entre as chamadas conforme solicitado
-    setTimeout(() => {
-      // Segunda Chamada (Nome + Instrução)
-      const secondUtterance = createUtterance(`${customerName}. Por favor, comparecer ao Atendimento Externo. Seu pedido está pronto.`, () => {
-        cleanUp();
-        // Limpeza final de segurança
-        window.speechSynthesis.cancel();
-      });
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash-preview-tts",
+      contents: [{ parts: [{ text: prompt }] }],
+      config: {
+        responseModalities: [Modality.AUDIO],
+        speechConfig: {
+          voiceConfig: {
+            prebuiltVoiceConfig: { voiceName: 'Kore' }, // Kore fornece uma voz feminina nítida e profissional
+          },
+        },
+      },
+    });
+
+    const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+    
+    if (base64Audio) {
+      const outputAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
+      const audioBuffer = await decodeAudioData(
+        decode(base64Audio),
+        outputAudioContext,
+        24000,
+        1,
+      );
+
+      const source = outputAudioContext.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(outputAudioContext.destination);
       
-      window.speechSynthesis.speak(secondUtterance);
-    }, 500);
-  });
+      source.onended = () => {
+        isGlobalSpeaking = false;
+      };
 
-  window.speechSynthesis.speak(firstUtterance);
-  console.log(`[VOZ NATIVA] Chamando cliente: ${customerName}`);
+      console.log(`[GEMINI TTS] Chamando: ${customerName}`);
+      source.start();
+    } else {
+      isGlobalSpeaking = false;
+    }
+  } catch (error) {
+    console.error("Erro ao chamar Gemini TTS:", error);
+    isGlobalSpeaking = false;
+  }
 };
