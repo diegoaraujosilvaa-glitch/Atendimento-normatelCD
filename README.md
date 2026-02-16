@@ -1,11 +1,38 @@
-<div align="center">
 
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
+# Normatel - Sistema de Gestão de Atendimento 🚀
 
-  <h1>Built with AI Studio</h2>
+Sistema inteligente de gestão de filas e separação de pedidos. Desenvolvido para alta performance em ambientes logísticos.
 
-  <p>The fastest path from prompt to production with Gemini.</p>
+## 📋 Como Executar
 
-  <a href="https://aistudio.google.com/apps">Start building</a>
+Como este projeto utiliza **React e TypeScript**, você precisa de um ambiente Node.js para compilá-lo.
 
-</div>
+1.  **Clone o repositório:**
+    ```bash
+    git clone https://github.com/seu-usuario/normatel-gestao.git
+    ```
+2.  **Instale as dependências:**
+    ```bash
+    npm install
+    ```
+3.  **Inicie em modo de desenvolvimento:**
+    ```bash
+    npm run dev
+    ```
+
+## 🌐 Deploy no GitHub Pages
+
+Para publicar no GitHub Pages, você deve converter o código TSX em arquivos estáticos:
+
+1.  Execute `npm run build`.
+2.  O conteúdo da pasta `dist/` gerada é o que deve ser enviado para o servidor ou para o branch `gh-pages`.
+
+## 🔐 Credenciais Administrativas
+- **Usuário:** `DIEGO.SILVA`
+- **Senha:** `05171888302`
+
+## 🛠 Tecnologias
+- React 19
+- Tailwind CSS (UI)
+- Google Gemini API (Voz)
+- LocalStorage (Persistência)
