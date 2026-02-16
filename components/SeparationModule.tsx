@@ -1,6 +1,7 @@
 
-import React from 'react';
+import React, { useState } from 'react';
 import { Ticket, TicketStatus, Priority } from '../types';
+import { announceCustomerCall } from '../services/geminiService';
 
 interface SeparationModuleProps {
   tickets: Ticket[];
@@ -9,6 +10,8 @@ interface SeparationModuleProps {
 }
 
 const SeparationModule: React.FC<SeparationModuleProps> = ({ tickets, onUpdateStatus, onRemove }) => {
+  const [audioLoadingMap, setAudioLoadingMap] = useState<Record<string, boolean>>({});
+
   const sortTickets = (list: Ticket[]) => {
     return [...list].sort((a, b) => {
       if (a.priority !== b.priority) return a.priority === Priority.PRIORITY ? -1 : 1;
@@ -21,9 +24,26 @@ const SeparationModule: React.FC<SeparationModuleProps> = ({ tickets, onUpdateSt
   const ready = sortTickets(tickets.filter(t => t.status === TicketStatus.READY));
   const called = sortTickets(tickets.filter(t => t.status === TicketStatus.CALLED));
 
-  const handleCall = (ticket: Ticket) => {
-    // Apenas atualiza o status. O Painel TV (CustomerDashboard) detectará a mudança e falará.
+  const handleCall = async (ticket: Ticket) => {
+    if (audioLoadingMap[ticket.id]) return;
+
+    // Ativa trava visual e de lógica por 5 segundos
+    setAudioLoadingMap(prev => ({ ...prev, [ticket.id]: true }));
+    
+    // Dispara o áudio IMEDIATAMENTE no clique (Voz Masculina Gemini)
+    await announceCustomerCall(ticket.customerName, ticket.id);
+    
+    // Atualiza o status no Firestore
     onUpdateStatus(ticket.id, TicketStatus.CALLED);
+
+    // Remove a trava após 5 segundos
+    setTimeout(() => {
+      setAudioLoadingMap(prev => {
+        const newState = { ...prev };
+        delete newState[ticket.id];
+        return newState;
+      });
+    }, 5000);
   };
 
   const handleFinish = (id: string) => {
@@ -93,8 +113,13 @@ const SeparationModule: React.FC<SeparationModuleProps> = ({ tickets, onUpdateSt
                   <h4 className="font-black text-lg text-amber-900 tracking-tighter uppercase leading-none mb-1">{ticket.customerName}</h4>
                   <p className="text-[10px] font-bold text-amber-600 uppercase">{ticket.password} • #{ticket.orderNumber}</p>
                 </div>
-                <button onClick={() => handleCall(ticket)} className="w-full bg-amber-600 hover:bg-amber-700 text-white py-3 rounded-xl font-black shadow-lg transition-all flex items-center justify-center gap-2 uppercase text-[10px] tracking-widest">
-                  <i className="fas fa-bullhorn"></i> CHAMAR AGORA
+                <button 
+                  disabled={audioLoadingMap[ticket.id]}
+                  onClick={() => handleCall(ticket)} 
+                  className={`w-full py-3 rounded-xl font-black shadow-lg transition-all flex items-center justify-center gap-2 uppercase text-[10px] tracking-widest ${audioLoadingMap[ticket.id] ? 'bg-gray-400 cursor-not-allowed' : 'bg-amber-600 hover:bg-amber-700 text-white'}`}
+                >
+                  <i className={`fas ${audioLoadingMap[ticket.id] ? 'fa-circle-notch fa-spin' : 'fa-bullhorn'}`}></i> 
+                  {audioLoadingMap[ticket.id] ? 'CHAMANDO...' : 'CHAMAR AGORA'}
                 </button>
               </div>
             ))}
@@ -124,8 +149,12 @@ const SeparationModule: React.FC<SeparationModuleProps> = ({ tickets, onUpdateSt
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
-                   <button onClick={() => handleCall(ticket)} className="bg-white text-emerald-600 border border-emerald-200 py-2 rounded-lg font-bold text-[9px] uppercase hover:bg-emerald-100 transition-all">
-                      RECHAMAR
+                   <button 
+                    disabled={audioLoadingMap[ticket.id]}
+                    onClick={() => handleCall(ticket)} 
+                    className={`border py-2 rounded-lg font-bold text-[9px] uppercase transition-all ${audioLoadingMap[ticket.id] ? 'bg-gray-200 text-gray-400' : 'bg-white text-emerald-600 border-emerald-200 hover:bg-emerald-100'}`}
+                   >
+                      {audioLoadingMap[ticket.id] ? 'CHAMANDO...' : 'RECHAMAR'}
                    </button>
                    <button onClick={() => handleFinish(ticket.id)} className="bg-emerald-600 hover:bg-emerald-700 text-white py-2 rounded-lg font-black shadow-md transition-all uppercase text-[9px] tracking-widest">
                       FINALIZAR

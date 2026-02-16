@@ -1,15 +1,16 @@
+
 import { GoogleGenAI, Modality } from "@google/genai";
 
 /**
- * SERVIÇO DE ÁUDIO CENTRALIZADO COM GEMINI TTS
- * Utiliza o modelo gemini-2.5-flash-preview-tts para locução profissional.
+ * SERVIÇO DE ÁUDIO EXCLUSIVO GEMINI TTS (VOZ MASCULINA)
+ * Substitui completamente o speechSynthesis do navegador para evitar duplicidade.
  */
 
-// Estado global de travamento para evitar chamadas sobrepostas ou disparos múltiplos
+let currentAudioSource: AudioBufferSourceNode | null = null;
+let audioContext: AudioContext | null = null;
 let isGlobalSpeaking = false;
 const callLockMap = new Map<string, number>();
 
-// Funções de decodificação de áudio (PCM raw do Gemini)
 function decode(base64: string) {
   const binaryString = atob(base64);
   const len = binaryString.length;
@@ -40,37 +41,51 @@ async function decodeAudioData(
 }
 
 /**
- * Anuncia a chamada do cliente usando Gemini TTS.
- * REQUISITOS: 
- * 1. Voz profissional do Gemini.
- * 2. Lock global para evitar duplicidade.
+ * Interrompe qualquer áudio que esteja sendo reproduzido no momento.
+ */
+export const stopAllAudio = () => {
+  if (currentAudioSource) {
+    try {
+      currentAudioSource.stop();
+      currentAudioSource.disconnect();
+    } catch (e) {
+      // Ignora se já estiver parado
+    }
+    currentAudioSource = null;
+  }
+  isGlobalSpeaking = false;
+};
+
+/**
+ * Anuncia a chamada do cliente usando Gemini TTS com Voz Masculina (Puck).
  */
 export const announceCustomerCall = async (customerName: string, ticketId: string) => {
   const now = Date.now();
   const lastCallTime = callLockMap.get(ticketId) || 0;
 
-  // Trava de segurança: impede que o mesmo ticket seja chamado em menos de 10 segundos
-  if (now - lastCallTime < 10000) return;
-  if (isGlobalSpeaking) return;
+  // Bloqueio de 5 segundos para o mesmo ticket (conforme solicitado para o botão)
+  if (now - lastCallTime < 5000) return;
+  
+  // Interrompe áudio anterior antes de começar o novo
+  stopAllAudio();
 
   isGlobalSpeaking = true;
   callLockMap.set(ticketId, now);
 
   try {
-    // Instancia o Gemini API
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     
-    // Constrói o texto da chamada com pausa estratégica
-    const prompt = `Diga de forma clara e profissional: ${customerName}. [pausa de 1 segundo] ${customerName}, por favor, comparecer ao Atendimento Externo.`;
+    // Prompt configurado para 2 repetições na mesma trilha de áudio
+    const promptText = `Atenção: ${customerName}. ${customerName}. Por favor, comparecer ao Atendimento Externo. Seu pedido está pronto.`;
 
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash-preview-tts",
-      contents: [{ parts: [{ text: prompt }] }],
+      contents: [{ parts: [{ text: promptText }] }],
       config: {
         responseModalities: [Modality.AUDIO],
         speechConfig: {
           voiceConfig: {
-            prebuiltVoiceConfig: { voiceName: 'Kore' }, // Kore fornece uma voz feminina nítida e profissional
+            prebuiltVoiceConfig: { voiceName: 'Puck' }, // Puck é uma voz masculina robusta e clara
           },
         },
       },
@@ -79,29 +94,38 @@ export const announceCustomerCall = async (customerName: string, ticketId: strin
     const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
     
     if (base64Audio) {
-      const outputAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
+      if (!audioContext) {
+        audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
+      }
+      
+      if (audioContext.state === 'suspended') {
+        await audioContext.resume();
+      }
+
       const audioBuffer = await decodeAudioData(
         decode(base64Audio),
-        outputAudioContext,
+        audioContext,
         24000,
         1,
       );
 
-      const source = outputAudioContext.createBufferSource();
+      const source = audioContext.createBufferSource();
       source.buffer = audioBuffer;
-      source.connect(outputAudioContext.destination);
+      source.connect(audioContext.destination);
       
       source.onended = () => {
         isGlobalSpeaking = false;
+        if (currentAudioSource === source) currentAudioSource = null;
       };
 
-      console.log(`[GEMINI TTS] Chamando: ${customerName}`);
+      currentAudioSource = source;
       source.start();
+      console.log(`[GEMINI MALE VOICE] Chamando: ${customerName}`);
     } else {
       isGlobalSpeaking = false;
     }
   } catch (error) {
-    console.error("Erro ao chamar Gemini TTS:", error);
+    console.error("Erro no Gemini TTS:", error);
     isGlobalSpeaking = false;
   }
 };

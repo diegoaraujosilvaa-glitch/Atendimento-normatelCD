@@ -1,7 +1,6 @@
 
 import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { Ticket, TicketStatus, Priority } from '../types';
-import { announceCustomerCall } from '../services/geminiService';
 
 interface CustomerDashboardProps {
   tickets: Ticket[];
@@ -11,8 +10,8 @@ const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ tickets = [] }) =
   const [lastCalled, setLastCalled] = useState<Ticket | null>(null);
   const [blink, setBlink] = useState(false);
   
-  // Referência para evitar re-anunciar tickets que já foram detectados neste ciclo de renderização
-  const announcedTimestampsRef = useRef<Map<string, number>>(new Map());
+  // Referência para evitar atualizações visuais desnecessárias
+  const lastProcessedIdRef = useRef<string | null>(null);
   
   useEffect(() => {
     if (!tickets || tickets.length === 0) return;
@@ -29,19 +28,14 @@ const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ tickets = [] }) =
     if (calledTickets.length > 0) {
       const mostRecent = calledTickets[0];
       const mostRecentTime = new Date(mostRecent.callTime!).getTime();
-      const lastAnnouncedTime = announcedTimestampsRef.current.get(mostRecent.id) || 0;
 
-      // Dispara o anúncio apenas se for uma nova chamada detectada pelo timestamp
-      if (mostRecentTime > lastAnnouncedTime) {
+      // Atualiza apenas visualmente. O ÁUDIO FOI REMOVIDO DAQUI para evitar duplicidade.
+      if (mostRecent.id !== lastProcessedIdRef.current) {
         setLastCalled(mostRecent);
         setBlink(true);
-        
-        // CHAMA O SERVIÇO CENTRALIZADO - Única fonte de áudio do sistema
-        announceCustomerCall(mostRecent.customerName, mostRecent.id);
-        
-        announcedTimestampsRef.current.set(mostRecent.id, mostRecentTime);
+        lastProcessedIdRef.current = mostRecent.id;
 
-        // Remove o efeito visual de destaque após 8 segundos
+        // Efeito visual de destaque
         const timer = setTimeout(() => setBlink(false), 8000);
         return () => clearTimeout(timer);
       }
