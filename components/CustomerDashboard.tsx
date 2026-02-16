@@ -10,13 +10,14 @@ interface CustomerDashboardProps {
 const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ tickets = [] }) => {
   const [lastCalled, setLastCalled] = useState<Ticket | null>(null);
   const [blink, setBlink] = useState(false);
-  // Estabilidade do React: Armazena a última data de chamada anunciada para cada ticket ID
-  const announcedTimestampsRef = useRef<Map<string, number>>(new Map());
+  
+  // Armazena o timestamp da última vez que cada ticket foi anunciado NESTA sessão do componente
+  const announcedRef = useRef<Map<string, number>>(new Map());
   
   useEffect(() => {
     if (!tickets || tickets.length === 0) return;
 
-    // Filtra e ordena tickets chamados pelo horário mais recente
+    // 1. Filtra apenas os tickets chamados que possuem timestamp de chamada
     const calledTickets = tickets
       .filter(t => t.status === TicketStatus.CALLED && t.callTime)
       .sort((a, b) => {
@@ -28,21 +29,35 @@ const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ tickets = [] }) =
     if (calledTickets.length > 0) {
       const mostRecent = calledTickets[0];
       const mostRecentTime = new Date(mostRecent.callTime!).getTime();
-      
-      const lastAnnouncedTime = announcedTimestampsRef.current.get(mostRecent.id) || 0;
+      const lastAnnouncedTime = announcedRef.current.get(mostRecent.id) || 0;
 
-      // Só dispara se o timestamp for novo ou superior ao último anunciado localmente
-      if (mostRecentTime > lastAnnouncedTime) {
+      /**
+       * LÓGICA DE PREVENÇÃO DE REPETIÇÃO:
+       * 1. O tempo da chamada no banco deve ser MAIOR que o que já anunciamos localmente.
+       * 2. A chamada deve ser "FRESCA" (ocorrida nos últimos 15 segundos). Isso evita que
+       *    ao recarregar a página ou sincronizar dados antigos, o sistema saia chamando todos.
+       */
+      const isNewCall = mostRecentTime > lastAnnouncedTime;
+      const isRecentCall = (Date.now() - mostRecentTime) < 15000;
+
+      if (isNewCall && isRecentCall) {
         setLastCalled(mostRecent);
         setBlink(true);
         
-        // Passa o ID para que o serviço gerencie a trava singleton
+        // Dispara a voz
         announceCustomerCall(mostRecent.customerName, mostRecent.id);
         
-        announcedTimestampsRef.current.set(mostRecent.id, mostRecentTime);
+        // Registra que já anunciamos este timestamp para este ID
+        announcedRef.current.set(mostRecent.id, mostRecentTime);
 
+        // Remove o efeito visual de blink após 8 segundos
         const timer = setTimeout(() => setBlink(false), 8000);
         return () => clearTimeout(timer);
+      } else if (isNewCall && !isRecentCall) {
+        // Se for uma chamada nova mas "velha" (ex: sync inicial), apenas atualizamos a ref 
+        // sem tocar o som para evitar o spam de áudio ao abrir o painel.
+        announcedRef.current.set(mostRecent.id, mostRecentTime);
+        setLastCalled(mostRecent);
       }
     }
   }, [tickets]);
@@ -118,7 +133,7 @@ const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ tickets = [] }) =
           </div>
       </div>
 
-      {/* Listas de Acompanhamento */}
+      {/* Listas de Acompanhamento com Totalizadores */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
         <div className="bg-white rounded-3xl shadow-xl p-8 border-b-8 border-emerald-500">
           <h3 className="text-xl font-black text-emerald-600 mb-8 border-b-2 border-emerald-50 pb-4 flex justify-between items-center">
