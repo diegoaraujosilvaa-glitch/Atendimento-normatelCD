@@ -1,48 +1,57 @@
 
 import { GoogleGenAI, Modality } from "@google/genai";
 
-// Controle de execução e estado global
+// Controle de execução e estado global para evitar chamadas sobrepostas ou infinitas
 let isGlobalSpeaking = false;
 let currentTicketId = "";
-const callLockMap = new Map<string, number>(); // ID -> Timestamp da última chamada
+const callLockMap = new Map<string, number>(); // ID do Ticket -> Timestamp da última chamada realizada
 let globalAudioContext: AudioContext | null = null;
 
 /**
- * Seleciona a primeira voz em português disponível (geralmente feminina/padrão).
- * Removido o bloqueio restrito de voz masculina para garantir compatibilidade em todos os dispositivos.
+ * Seleciona rigorosamente uma voz feminina em português disponível no navegador.
  */
-const getPortugueseVoice = (): SpeechSynthesisVoice | null => {
+const getPortugueseFemaleVoice = (): SpeechSynthesisVoice | null => {
+  if (!('speechSynthesis' in window)) return null;
+  
   const voices = window.speechSynthesis.getVoices();
   const ptBRVoices = voices.filter(v => v.lang.includes('pt-BR') || v.lang.includes('pt_BR'));
   
   if (ptBRVoices.length === 0) return null;
 
-  // Prioriza a voz padrão do sistema/navegador que costuma ser feminina e estável
-  return ptBRVoices.find(v => v.default) || ptBRVoices[0];
+  // Tenta encontrar uma voz feminina filtrando palavras-chave masculinas conhecidas
+  const femaleVoices = ptBRVoices.filter(v => 
+    !v.name.toLowerCase().includes('masculino') && 
+    !v.name.toLowerCase().includes('male') &&
+    !v.name.toLowerCase().includes('daniel') &&
+    !v.name.toLowerCase().includes('felipe') &&
+    !v.name.toLowerCase().includes('google português do brasil') // Geralmente é Daniel/Masculino
+  );
+
+  // Retorna a primeira voz feminina ou a primeira PT-BR disponível (Maria, Heloísa, etc)
+  return femaleVoices.length > 0 ? femaleVoices[0] : ptBRVoices[0];
 };
 
 /**
- * Função de síntese nativa simplificada para usar voz feminina padrão.
+ * Função de síntese nativa simplificada para usar voz feminina padrão do navegador.
  */
 const speakNative = (text: string, ticketId: string, customerName: string) => {
   if (!('speechSynthesis' in window)) return;
 
-  // 3. Estabilidade e Limpeza: Limpa fila antes de iniciar
+  // Interrompe qualquer fala anterior pendente para garantir a clareza
   window.speechSynthesis.cancel();
 
-  // 1. Prioridade para Voz Feminina: Pega a primeira voz PT-BR disponível
-  const voice = getPortugueseVoice();
-  
+  const voice = getPortugueseFemaleVoice();
   const utterance = new SpeechSynthesisUtterance(text);
+  
   if (voice) {
     utterance.voice = voice;
   }
+  
   utterance.lang = 'pt-BR';
-  utterance.rate = 0.9;
+  utterance.rate = 0.95; // Velocidade natural e profissional para atendimento
   utterance.pitch = 1.0;
 
-  // 4. Feedback no Console
-  console.log("Chamando cliente (Voz Feminina):", customerName);
+  console.log("Chamando cliente no Painel TV (Voz Feminina):", customerName);
 
   utterance.onstart = () => {
     isGlobalSpeaking = true;
@@ -90,38 +99,34 @@ async function decodeAudioData(
 }
 
 /**
- * Anuncia a chamada do cliente.
- * 1. Limite rigoroso de 2 repetições.
- * 2. Trava de 10 segundos por cliente.
- * 3. Voz feminina preferencial.
+ * Anuncia a chamada do cliente no Painel TV.
+ * Requisitos: Voz feminina e exatamente 2 repetições do nome.
  */
 export const announceCustomerCall = async (customerName: string, ticketId: string) => {
   const now = Date.now();
   const lastCallTime = callLockMap.get(ticketId) || 0;
 
-  // 3. Trava de segurança (lock) de 10 segundos
+  // Trava de 10 segundos para evitar disparos em loop por re-render do componente
   if (now - lastCallTime < 10000) {
-    console.log(`Bloqueio de repetição: ${customerName} chamado recentemente.`);
     return;
   }
 
-  // Se já estiver falando o mesmo ticket, ignora
+  // Singleton: se já estiver chamando este ticket, ignora o comando duplicado
   if (isGlobalSpeaking && currentTicketId === ticketId) return;
 
-  // Atualiza timestamp
   callLockMap.set(ticketId, now);
 
-  // 2. Limite Rigoroso de 2 Repetições: Nome repetido exatamente 2 vezes
+  // Texto com exatamente 2 repetições do nome do cliente conforme solicitado
   const promptText = `Atenção: ${customerName}. ${customerName}. Por favor, comparecer ao Atendimento Externo. Seu pedido está pronto.`;
 
-  // Se não houver API KEY, vai direto para a voz nativa (Feminina)
+  // Se não houver chave de API, usa voz nativa feminina do navegador (Prioridade de conformidade)
   if (!process.env.API_KEY || process.env.API_KEY === 'undefined' || process.env.API_KEY === '') {
     speakNative(promptText, ticketId, customerName);
     return;
   }
 
   try {
-    // 3. Limpeza de fila nativa antes de tentar Gemini
+    // Interrompe sínteses nativas antes de disparar Gemini para não sobrepor áudios
     window.speechSynthesis.cancel();
 
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
@@ -132,10 +137,8 @@ export const announceCustomerCall = async (customerName: string, ticketId: strin
         responseModalities: [Modality.AUDIO],
         speechConfig: {
           voiceConfig: {
-            // No Gemini, mantemos uma voz estável. Se desejar feminina absoluta no Gemini,
-            // as opções variam, mas 'Kore' é o padrão de exemplo. 
-            // O pedido foca na detecção de dispositivo (Native).
-            prebuiltVoiceConfig: { voiceName: 'Kore' },
+            // Zephyr é utilizada para tentar manter um perfil mais feminino/neutro no Gemini TTS
+            prebuiltVoiceConfig: { voiceName: 'Zephyr' }, 
           },
         },
       },
@@ -145,39 +148,4 @@ export const announceCustomerCall = async (customerName: string, ticketId: strin
     
     if (base64Audio) {
       if (!globalAudioContext) {
-        globalAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
-      }
-      
-      if (globalAudioContext.state === 'suspended') {
-        await globalAudioContext.resume();
-      }
-
-      const audioBuffer = await decodeAudioData(
-        decode(base64Audio),
-        globalAudioContext,
-        24000,
-        1
-      );
-
-      const source = globalAudioContext.createBufferSource();
-      source.buffer = audioBuffer;
-      source.connect(globalAudioContext.destination);
-      
-      source.onended = () => {
-        isGlobalSpeaking = false;
-        currentTicketId = "";
-      };
-
-      isGlobalSpeaking = true;
-      currentTicketId = ticketId;
-      source.start(0);
-      console.log("Chamando cliente (Voz Digital):", customerName);
-      
-    } else {
-      throw new Error("Erro de dados Gemini");
-    }
-  } catch (error) {
-    // Em caso de erro no Gemini, usa a voz feminina nativa do navegador
-    speakNative(promptText, ticketId, customerName);
-  }
-};
+        globalAudioContext = new (window.AudioContext || (window as
