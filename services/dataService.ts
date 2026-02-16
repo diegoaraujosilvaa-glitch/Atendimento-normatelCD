@@ -1,79 +1,145 @@
 
-import { Ticket, User, TicketStatus } from '../types';
+import { db } from './firebaseConfig';
+import { 
+  collection, 
+  query, 
+  where, 
+  getDocs, 
+  addDoc, 
+  updateDoc, 
+  deleteDoc, 
+  doc, 
+  setDoc,
+  Timestamp,
+  orderBy,
+  limit
+} from "firebase/firestore";
+import { Ticket, User } from '../types';
 
 /**
- * DataService - Camada de Abstração de Dados
- * Esta classe centraliza todas as chamadas de dados do sistema.
- * Atualmente utiliza LocalStorage para persistência, mas está preparada
- * para integração imediata com Firebase, Supabase ou API REST.
+ * DataService - Camada de Abstração de Dados via Firebase Firestore
  */
 class DataService {
-  private static async delay(ms: number = 300) {
-    return new Promise(resolve => setTimeout(resolve, ms));
+  
+  // Helper para converter Timestamps do Firestore para Date do JS
+  private static parseFirestoreData(data: any): any {
+    const parsed = { ...data };
+    Object.keys(parsed).forEach(key => {
+      if (parsed[key] instanceof Timestamp) {
+        parsed[key] = parsed[key].toDate();
+      }
+    });
+    return parsed;
   }
 
-  // --- TICKETS ---
-
-  static async getTickets(date: string): Promise<Ticket[]> {
-    await this.delay(); // Simula latência de rede
-    const key = `normatel_tickets_${date}`;
-    const saved = localStorage.getItem(key);
-    if (!saved) return [];
-    
+  /**
+   * Função solicitada: getAtendimentos
+   * Busca documentos da coleção "atendimentos"
+   */
+  static async getAtendimentos() {
     try {
-      const parsed = JSON.parse(saved);
-      return parsed.map((t: any) => ({
-        ...t,
-        arrivalTime: new Date(t.arrivalTime),
-        separationStartTime: t.separationStartTime ? new Date(t.separationStartTime) : undefined,
-        separationEndTime: t.separationEndTime ? new Date(t.separationEndTime) : undefined,
-        callTime: t.callTime ? new Date(t.callTime) : undefined,
-        finishTime: t.finishTime ? new Date(t.finishTime) : undefined,
+      const q = query(collection(db, "atendimentos"), orderBy("criadoEm", "desc"), limit(50));
+      const snapshot = await getDocs(q);
+      return snapshot.docs.map(doc => ({
+        id: doc.id,
+        nome: doc.data().nome,
+        status: doc.data().status,
+        criadoEm: doc.data().criadoEm instanceof Timestamp ? doc.data().criadoEm.toDate() : doc.data().criadoEm
       }));
-    } catch (e) {
-      console.error("Erro ao ler tickets:", e);
+    } catch (error) {
+      console.error("Erro ao buscar atendimentos:", error);
       return [];
     }
   }
 
-  static async saveTickets(date: string, tickets: Ticket[]): Promise<void> {
-    await this.delay(150);
-    const key = `normatel_tickets_${date}`;
-    localStorage.setItem(key, JSON.stringify(tickets));
+  // --- TICKETS (Integração com o App Atual) ---
+
+  static async getTickets(date: string): Promise<Ticket[]> {
+    try {
+      const q = query(
+        collection(db, "tickets"), 
+        where("sessionDate", "==", date),
+        orderBy("arrivalTime", "asc")
+      );
+      const querySnapshot = await getDocs(q);
+      const tickets: Ticket[] = [];
+      querySnapshot.forEach((doc) => {
+        tickets.push({ id: doc.id, ...this.parseFirestoreData(doc.data()) } as Ticket);
+      });
+      return tickets;
+    } catch (e) {
+      console.error("Erro ao buscar tickets:", e);
+      return [];
+    }
   }
 
-  static async addTicket(date: string, ticket: Ticket): Promise<void> {
-    const tickets = await this.getTickets(date);
-    tickets.push(ticket);
-    await this.saveTickets(date, tickets);
+  static async addTicket(date: string, ticket: Omit<Ticket, 'id'>): Promise<void> {
+    try {
+      // Converte datas para Timestamp antes de salvar
+      const payload = {
+        ...ticket,
+        sessionDate: date,
+        arrivalTime: Timestamp.fromDate(new Date())
+      };
+      await addDoc(collection(db, "tickets"), payload);
+    } catch (e) {
+      console.error("Erro ao adicionar ticket:", e);
+    }
   }
 
   static async updateTicket(date: string, updatedTicket: Ticket): Promise<void> {
-    const tickets = await this.getTickets(date);
-    const index = tickets.findIndex(t => t.id === updatedTicket.id);
-    if (index !== -1) {
-      tickets[index] = updatedTicket;
-      await this.saveTickets(date, tickets);
+    try {
+      const { id, ...data } = updatedTicket;
+      const ticketRef = doc(db, "tickets", id);
+      
+      const payload: any = { ...data };
+      Object.keys(payload).forEach(key => {
+        if (payload[key] instanceof Date) {
+          payload[key] = Timestamp.fromDate(payload[key]);
+        }
+      });
+
+      await updateDoc(ticketRef, payload);
+    } catch (e) {
+      console.error("Erro ao atualizar ticket:", e);
     }
   }
 
   static async deleteTicket(date: string, ticketId: string): Promise<void> {
-    const tickets = await this.getTickets(date);
-    const filtered = tickets.filter(t => t.id !== ticketId);
-    await this.saveTickets(date, filtered);
+    try {
+      await deleteDoc(doc(db, "tickets", ticketId));
+    } catch (e) {
+      console.error("Erro ao deletar ticket:", e);
+    }
   }
 
   // --- USUÁRIOS ---
 
   static async getUsers(): Promise<User[]> {
-    await this.delay();
-    const saved = localStorage.getItem('normatel_users');
-    return saved ? JSON.parse(saved) : [];
+    try {
+      const snapshot = await getDocs(collection(db, "users"));
+      return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
+    } catch (e) {
+      console.error("Erro ao buscar usuários:", e);
+      return [];
+    }
   }
 
-  static async saveUsers(users: User[]): Promise<void> {
-    await this.delay(200);
-    localStorage.setItem('normatel_users', JSON.stringify(users));
+  static async saveUser(user: User): Promise<void> {
+    try {
+      const { id, ...data } = user;
+      await setDoc(doc(db, "users", id), data);
+    } catch (e) {
+      console.error("Erro ao salvar usuário:", e);
+    }
+  }
+
+  static async deleteUser(id: string): Promise<void> {
+    try {
+      await deleteDoc(doc(db, "users", id));
+    } catch (e) {
+      console.error("Erro ao remover usuário:", e);
+    }
   }
 }
 
