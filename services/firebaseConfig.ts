@@ -1,7 +1,7 @@
-
-// Re-ordering imports to match standard Firebase v9 patterns and align with environment expectations
-import { getFirestore } from "firebase/firestore";
+// Standard Firebase v9 modular imports. 
+// Core app must be imported first to ensure the modular services resolve correctly.
 import { initializeApp } from "firebase/app";
+import { getFirestore } from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: "AIzaSyAUGH515dj40sGUUHe2iK327fb1yP-_UG8",

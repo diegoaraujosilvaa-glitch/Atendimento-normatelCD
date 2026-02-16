@@ -1,5 +1,7 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { db } from '../services/firebaseConfig';
+import { collection, query, where, getDocs, orderBy, Timestamp } from "firebase/firestore";
 import { Ticket, TicketStatus } from '../types';
 
 const ReportsModule: React.FC = () => {
@@ -8,32 +10,59 @@ const ReportsModule: React.FC = () => {
     end: new Date().toISOString().split('T')[0]
   });
 
-  const allTickets = useMemo(() => {
-    const start = new Date(dateRange.start + "T00:00:00");
-    const end = new Date(dateRange.end + "T23:59:59");
-    const tickets: (Ticket & { sessionDate: string })[] = [];
+  const [allTickets, setAllTickets] = useState<Ticket[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
 
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key?.startsWith('normatel_tickets_')) {
-        const dateStr = key.replace('normatel_tickets_', '');
-        const currentDate = new Date(dateStr + "T00:00:00");
+  // Busca dados do Firebase sempre que o período mudar
+  useEffect(() => {
+    const fetchHistory = async () => {
+      setIsLoading(true);
+      try {
+        const ticketsRef = collection(db, "tickets");
         
-        if (currentDate >= start && currentDate <= end) {
-          try {
-            const data = JSON.parse(localStorage.getItem(key) || '[]');
-            data.forEach((t: any) => tickets.push({ ...t, sessionDate: dateStr }));
-          } catch (e) {}
-        }
+        // Consulta baseada no range de datas (strings YYYY-MM-DD)
+        const q = query(
+          ticketsRef,
+          where("sessionDate", ">=", dateRange.start),
+          where("sessionDate", "<=", dateRange.end)
+        );
+
+        const querySnapshot = await getDocs(q);
+        const results: Ticket[] = [];
+
+        querySnapshot.forEach((doc) => {
+          const data = doc.data();
+          
+          // Helper para converter Timestamps do Firestore para Date do JS
+          const parsedData = { ...data };
+          Object.keys(parsedData).forEach(key => {
+            if (parsedData[key] instanceof Timestamp) {
+              parsedData[key] = parsedData[key].toDate();
+            }
+          });
+
+          results.push({
+            ...parsedData,
+            id: doc.id
+          } as Ticket);
+        });
+
+        // Ordenação client-side para garantir ordem cronológica reversa
+        const sortedResults = results.sort((a, b) => {
+          const timeA = new Date(a.arrivalTime).getTime();
+          const timeB = new Date(b.arrivalTime).getTime();
+          return timeB - timeA;
+        });
+
+        setAllTickets(sortedResults);
+      } catch (error) {
+        console.error("Erro ao buscar histórico no Firebase:", error);
+      } finally {
+        setIsLoading(false);
       }
-    }
-    
-    // Organiza do mais recente para o mais antigo (Decrescente por arrivalTime)
-    return tickets.sort((a, b) => {
-      const timeA = new Date(a.arrivalTime).getTime();
-      const timeB = new Date(b.arrivalTime).getTime();
-      return timeB - timeA;
-    });
+    };
+
+    fetchHistory();
   }, [dateRange]);
 
   const stats = useMemo(() => {
@@ -70,9 +99,16 @@ const ReportsModule: React.FC = () => {
   return (
     <div className="animate-fadeIn space-y-6">
       <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
-        <h2 className="text-xl font-black mb-6 flex items-center gap-2">
-          <i className="fas fa-chart-pie text-[#e67324]"></i> RELATÓRIOS E HISTÓRICO
-        </h2>
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="text-xl font-black flex items-center gap-2">
+            <i className="fas fa-chart-pie text-[#e67324]"></i> RELATÓRIOS E HISTÓRICO
+          </h2>
+          {isLoading && (
+            <div className="flex items-center gap-2 text-[#e67324] font-bold text-xs uppercase animate-pulse">
+              <i className="fas fa-circle-notch fa-spin"></i> Sincronizando Cloud...
+            </div>
+          )}
+        </div>
         
         <div className="flex flex-wrap gap-4 items-end mb-8 bg-gray-50 p-4 rounded-xl">
           <div className="flex flex-col gap-1">
@@ -81,7 +117,7 @@ const ReportsModule: React.FC = () => {
               type="date" 
               value={dateRange.start}
               onChange={(e) => setDateRange(prev => ({ ...prev, start: e.target.value }))}
-              className="p-2 border rounded-lg outline-none focus:ring-2 focus:ring-[#e67324] font-bold"
+              className="p-2 border rounded-lg outline-none focus:ring-2 focus:ring-[#e67324] font-bold text-sm"
             />
           </div>
           <div className="flex flex-col gap-1">
@@ -90,13 +126,19 @@ const ReportsModule: React.FC = () => {
               type="date" 
               value={dateRange.end}
               onChange={(e) => setDateRange(prev => ({ ...prev, end: e.target.value }))}
-              className="p-2 border rounded-lg outline-none focus:ring-2 focus:ring-[#e67324] font-bold"
+              className="p-2 border rounded-lg outline-none focus:ring-2 focus:ring-[#e67324] font-bold text-sm"
             />
           </div>
+          <button 
+            onClick={() => setDateRange({...dateRange})} // Força refresh se necessário
+            className="bg-[#1a1a1a] text-white px-4 py-2.5 rounded-lg text-[10px] font-black uppercase hover:bg-[#e67324] transition-all"
+          >
+            Atualizar Dados
+          </button>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <div className="bg-[#1a1a1a] text-white p-6 rounded-2xl flex justify-between items-center">
+          <div className="bg-[#1a1a1a] text-white p-6 rounded-2xl flex justify-between items-center shadow-lg">
             <div>
               <p className="text-[10px] font-black uppercase text-[#e67324]">Total Atendimentos</p>
               <p className="text-3xl font-black">{stats.total}</p>
@@ -119,41 +161,53 @@ const ReportsModule: React.FC = () => {
           </div>
         </div>
 
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto rounded-xl border border-gray-100">
           <table className="w-full text-left text-sm">
             <thead className="bg-[#1a1a1a] text-white font-bold uppercase text-[10px]">
               <tr>
-                <th className="px-4 py-3 border-r border-white/10">Data</th>
-                <th className="px-4 py-3">Senha</th>
-                <th className="px-4 py-3">Cliente</th>
-                <th className="px-4 py-3">Tipo</th>
-                <th className="px-4 py-3">Início</th>
-                <th className="px-4 py-3">Término</th>
-                <th className="px-4 py-3">Duração</th>
-                <th className="px-4 py-3">Status</th>
+                <th className="px-4 py-4 border-r border-white/10">Data</th>
+                <th className="px-4 py-4">Senha</th>
+                <th className="px-4 py-4">Cliente</th>
+                <th className="px-4 py-4">Tipo</th>
+                <th className="px-4 py-4">Início</th>
+                <th className="px-4 py-4">Término</th>
+                <th className="px-4 py-4">Duração</th>
+                <th className="px-4 py-4">Status</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {allTickets.map((t, idx) => (
-                <tr key={idx} className={`hover:bg-orange-50 transition-colors ${t.status === TicketStatus.FINISHED ? 'text-gray-800' : 'text-gray-400 italic'}`}>
-                  <td className="px-4 py-4 font-mono text-[11px] border-r">{t.sessionDate}</td>
-                  <td className="px-4 py-4 font-black">{t.password}</td>
-                  <td className="px-4 py-4 font-medium uppercase text-[12px]">{t.customerName}</td>
-                  <td className="px-4 py-4 text-[11px] font-bold text-gray-500 uppercase">{t.clientType}</td>
-                  <td className="px-4 py-4 font-mono text-[12px]">{formatTime(t.arrivalTime)}</td>
-                  <td className="px-4 py-4 font-mono text-[12px]">{formatTime(t.finishTime)}</td>
-                  <td className="px-4 py-4 font-black text-[#e67324]">{calculateDuration(t.arrivalTime, t.finishTime)}</td>
-                  <td className="px-4 py-4">
-                    <span className={`text-[9px] font-black uppercase px-2 py-1 rounded ${
-                        t.status === TicketStatus.FINISHED ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-400'
-                    }`}>
-                        {t.status}
-                    </span>
+              {isLoading ? (
+                <tr>
+                  <td colSpan={8} className="px-6 py-20 text-center">
+                    <i className="fas fa-circle-notch fa-spin text-3xl text-[#e67324] mb-4"></i>
+                    <p className="text-gray-400 font-black text-[10px] uppercase tracking-widest">Consultando Nuvem...</p>
                   </td>
                 </tr>
-              ))}
-              {allTickets.length === 0 && (
-                <tr><td colSpan={8} className="px-6 py-20 text-center text-gray-400 font-bold uppercase tracking-widest bg-gray-50">Nenhum dado encontrado no período</td></tr>
+              ) : allTickets.length > 0 ? (
+                allTickets.map((t, idx) => (
+                  <tr key={idx} className={`hover:bg-orange-50/50 transition-colors ${t.status === TicketStatus.FINISHED ? 'text-gray-800' : 'text-gray-400 italic'}`}>
+                    <td className="px-4 py-4 font-mono text-[11px] border-r font-bold">{(t as any).sessionDate}</td>
+                    <td className="px-4 py-4 font-black">{t.password}</td>
+                    <td className="px-4 py-4 font-medium uppercase text-[12px]">{t.customerName}</td>
+                    <td className="px-4 py-4 text-[11px] font-bold text-gray-500 uppercase">{t.clientType}</td>
+                    <td className="px-4 py-4 font-mono text-[12px]">{formatTime(t.arrivalTime)}</td>
+                    <td className="px-4 py-4 font-mono text-[12px]">{formatTime(t.finishTime)}</td>
+                    <td className="px-4 py-4 font-black text-[#e67324]">{calculateDuration(t.arrivalTime, t.finishTime)}</td>
+                    <td className="px-4 py-4">
+                      <span className={`text-[9px] font-black uppercase px-2 py-1 rounded ${
+                          t.status === TicketStatus.FINISHED ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-400'
+                      }`}>
+                          {t.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={8} className="px-6 py-20 text-center text-gray-400 font-bold uppercase tracking-widest bg-gray-50">
+                    Nenhum dado encontrado no período selecionado.
+                  </td>
+                </tr>
               )}
             </tbody>
           </table>
