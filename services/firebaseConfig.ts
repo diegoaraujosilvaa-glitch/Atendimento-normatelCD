@@ -1,5 +1,4 @@
-// Standard Firebase v9 modular imports. 
-// Core app must be imported first to ensure the modular services resolve correctly.
+// Standard Firebase v9 modular imports
 import { initializeApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
 

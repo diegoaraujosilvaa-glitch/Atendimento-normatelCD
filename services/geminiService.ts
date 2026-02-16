@@ -27,10 +27,10 @@ const getPortugueseVoice = (): SpeechSynthesisVoice | null => {
 const speakNative = (text: string, ticketId: string, customerName: string) => {
   if (!('speechSynthesis' in window)) return;
 
-  // 3. Estabilidade e Limpeza: Limpa fila antes de iniciar
+  // Estabilidade e Limpeza: Limpa fila antes de iniciar
   window.speechSynthesis.cancel();
 
-  // 1. Prioridade para Voz Feminina: Pega a primeira voz PT-BR disponível
+  // Prioridade para Voz Feminina: Pega a primeira voz PT-BR disponível
   const voice = getPortugueseVoice();
   
   const utterance = new SpeechSynthesisUtterance(text);
@@ -41,8 +41,8 @@ const speakNative = (text: string, ticketId: string, customerName: string) => {
   utterance.rate = 0.9;
   utterance.pitch = 1.0;
 
-  // 4. Feedback no Console
-  console.log("Chamando cliente (Voz Feminina):", customerName);
+  // Feedback no Console
+  console.log("Chamando cliente (Voz Feminina Nativa):", customerName);
 
   utterance.onstart = () => {
     isGlobalSpeaking = true;
@@ -60,6 +60,7 @@ const speakNative = (text: string, ticketId: string, customerName: string) => {
   window.speechSynthesis.speak(utterance);
 };
 
+// Implementação manual de decode base64 seguindo as diretrizes
 function decode(base64: string) {
   const binaryString = atob(base64);
   const len = binaryString.length;
@@ -70,6 +71,7 @@ function decode(base64: string) {
   return bytes;
 }
 
+// Implementação manual de decodeAudioData seguindo as diretrizes
 async function decodeAudioData(
   data: Uint8Array,
   ctx: AudioContext,
@@ -91,15 +93,15 @@ async function decodeAudioData(
 
 /**
  * Anuncia a chamada do cliente.
- * 1. Limite rigoroso de 2 repetições.
+ * 1. Limite rigoroso de 2 repetições via texto.
  * 2. Trava de 10 segundos por cliente.
- * 3. Voz feminina preferencial.
+ * 3. Voz Gemini 2.5 Flash TTS com fallback nativo.
  */
 export const announceCustomerCall = async (customerName: string, ticketId: string) => {
   const now = Date.now();
   const lastCallTime = callLockMap.get(ticketId) || 0;
 
-  // 3. Trava de segurança (lock) de 10 segundos
+  // Trava de segurança (lock) de 10 segundos
   if (now - lastCallTime < 10000) {
     console.log(`Bloqueio de repetição: ${customerName} chamado recentemente.`);
     return;
@@ -111,30 +113,29 @@ export const announceCustomerCall = async (customerName: string, ticketId: strin
   // Atualiza timestamp
   callLockMap.set(ticketId, now);
 
-  // 2. Limite Rigoroso de 2 Repetições: Nome repetido exatamente 2 vezes
   const promptText = `Atenção: ${customerName}. ${customerName}. Por favor, comparecer ao Atendimento Externo. Seu pedido está pronto.`;
 
-  // Se não houver API KEY, vai direto para a voz nativa (Feminina)
+  // Se não houver API KEY, vai direto para a voz nativa
   if (!process.env.API_KEY || process.env.API_KEY === 'undefined' || process.env.API_KEY === '') {
     speakNative(promptText, ticketId, customerName);
     return;
   }
 
   try {
-    // 3. Limpeza de fila nativa antes de tentar Gemini
+    // Limpeza de fila nativa antes de tentar Gemini
     window.speechSynthesis.cancel();
 
+    // Criar instância logo antes da chamada para garantir chave atualizada conforme diretrizes
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash-preview-tts",
       contents: [{ parts: [{ text: promptText }] }],
       config: {
         responseModalities: [Modality.AUDIO],
+        // Desabilitar thinking para menor latência em tarefas de voz em tempo real
+        thinkingConfig: { thinkingBudget: 0 },
         speechConfig: {
           voiceConfig: {
-            // No Gemini, mantemos uma voz estável. Se desejar feminina absoluta no Gemini,
-            // as opções variam, mas 'Kore' é o padrão de exemplo. 
-            // O pedido foca na detecção de dispositivo (Native).
             prebuiltVoiceConfig: { voiceName: 'Kore' },
           },
         },
@@ -171,13 +172,13 @@ export const announceCustomerCall = async (customerName: string, ticketId: strin
       isGlobalSpeaking = true;
       currentTicketId = ticketId;
       source.start(0);
-      console.log("Chamando cliente (Voz Digital):", customerName);
+      console.log("Chamando cliente (Voz Gemini):", customerName);
       
     } else {
-      throw new Error("Erro de dados Gemini");
+      throw new Error("Dados de áudio ausentes na resposta do Gemini");
     }
   } catch (error) {
-    // Em caso de erro no Gemini, usa a voz feminina nativa do navegador
+    console.warn("Gemini TTS falhou, usando fallback nativo:", error);
     speakNative(promptText, ticketId, customerName);
   }
 };
