@@ -57,7 +57,7 @@ const ReceptionModule: React.FC<ReceptionModuleProps> = ({ onAddTicket, tickets 
           </div>
           <div>
             <h2 className="text-2xl font-black tracking-tight">CADASTRAR ATENDIMENTO</h2>
-            <p className="text-xs text-gray-400 font-bold uppercase tracking-widest">Painel de Recepção Firestore</p>
+            <p className="text-xs text-gray-400 font-bold uppercase tracking-widest">Painel de Recepção normatel</p>
           </div>
         </div>
 
@@ -109,7 +109,7 @@ const ReceptionModule: React.FC<ReceptionModuleProps> = ({ onAddTicket, tickets 
             <i className="fas fa-cloud text-white/10 text-3xl"></i>
           </div>
           <p className="text-6xl font-black tracking-tighter">{tickets.length}</p>
-          <p className="text-xs text-gray-500 mt-2 font-bold uppercase tracking-widest">Total Sincronizado</p>
+          <p className="text-xs text-gray-500 mt-2 font-bold uppercase tracking-widest">Total atedimentos</p>
         </div>
 
         <div className="bg-white p-8 rounded-2xl border border-gray-200 shadow-sm">
