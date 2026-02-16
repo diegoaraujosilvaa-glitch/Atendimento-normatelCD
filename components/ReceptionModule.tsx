@@ -109,11 +109,11 @@ const ReceptionModule: React.FC<ReceptionModuleProps> = ({ onAddTicket, tickets 
             <i className="fas fa-cloud text-white/10 text-3xl"></i>
           </div>
           <p className="text-6xl font-black tracking-tighter">{tickets.length}</p>
-          <p className="text-xs text-gray-500 mt-2 font-bold uppercase tracking-widest">Total atedimentos</p>
+          <p className="text-xs text-gray-500 mt-2 font-bold uppercase tracking-widest">Total atendimentos</p>
         </div>
 
         <div className="bg-white p-8 rounded-2xl border border-gray-200 shadow-sm">
-          <h3 className="text-xs font-black uppercase tracking-widest text-gray-400 mb-6">Sincronização Recente</h3>
+          <h3 className="text-xs font-black uppercase tracking-widest text-gray-400 mb-6">Atendimentos Recente</h3>
           <div className="space-y-4">
             {recentTickets.map(ticket => (
               <div key={ticket.id} className="flex items-center justify-between border-b pb-4 last:border-0 last:pb-0">
