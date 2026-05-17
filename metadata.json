@@ -3,5 +3,6 @@
   "description": "Sistema inteligente de gestão de filas e separação de pedidos para logística e comércio, com chamadas por voz e painel em tempo real.",
   "requestFramePermissions": [
     "microphone"
-  ]
+  ],
+  "majorCapabilities": []
 }

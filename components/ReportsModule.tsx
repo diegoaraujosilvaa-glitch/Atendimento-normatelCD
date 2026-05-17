@@ -167,6 +167,7 @@ const ReportsModule: React.FC = () => {
               <tr>
                 <th className="px-4 py-4 border-r border-white/10">Data</th>
                 <th className="px-4 py-4">Senha</th>
+                <th className="px-4 py-4">Pedido</th>
                 <th className="px-4 py-4">Cliente</th>
                 <th className="px-4 py-4">Tipo</th>
                 <th className="px-4 py-4">Início</th>
@@ -178,7 +179,7 @@ const ReportsModule: React.FC = () => {
             <tbody className="divide-y divide-gray-100">
               {isLoading ? (
                 <tr>
-                  <td colSpan={8} className="px-6 py-20 text-center">
+                  <td colSpan={9} className="px-6 py-20 text-center">
                     <i className="fas fa-circle-notch fa-spin text-3xl text-[#e67324] mb-4"></i>
                     <p className="text-gray-400 font-black text-[10px] uppercase tracking-widest">Consultando Nuvem...</p>
                   </td>
@@ -188,6 +189,7 @@ const ReportsModule: React.FC = () => {
                   <tr key={idx} className={`hover:bg-orange-50/50 transition-colors ${t.status === TicketStatus.FINISHED ? 'text-gray-800' : 'text-gray-400 italic'}`}>
                     <td className="px-4 py-4 font-mono text-[11px] border-r font-bold">{(t as any).sessionDate}</td>
                     <td className="px-4 py-4 font-black">{t.password}</td>
+                    <td className="px-4 py-4 font-bold text-gray-600">#{t.orderNumber}</td>
                     <td className="px-4 py-4 font-medium uppercase text-[12px]">{t.customerName}</td>
                     <td className="px-4 py-4 text-[11px] font-bold text-gray-500 uppercase">{t.clientType}</td>
                     <td className="px-4 py-4 font-mono text-[12px]">{formatTime(t.arrivalTime)}</td>
@@ -204,7 +206,7 @@ const ReportsModule: React.FC = () => {
                 ))
               ) : (
                 <tr>
-                  <td colSpan={8} className="px-6 py-20 text-center text-gray-400 font-bold uppercase tracking-widest bg-gray-50">
+                  <td colSpan={9} className="px-6 py-20 text-center text-gray-400 font-bold uppercase tracking-widest bg-gray-50">
                     Nenhum dado encontrado no período selecionado.
                   </td>
                 </tr>
