@@ -62,28 +62,71 @@ const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ tickets = [] }) =
     return Math.round(totalMs / finishedTickets.length / 1000 / 60);
   }, [tickets]);
 
+  const isPriority = lastCalled?.priority === Priority.PRIORITY;
+
   return (
     <div className="flex flex-col gap-8 min-h-[80vh] animate-fadeIn relative">
       
       {/* Última Chamada - Destaque Principal */}
-      <div className={`transition-all duration-500 rounded-3xl p-12 text-center shadow-2xl relative overflow-hidden border-8 ${blink ? 'bg-[#e67324] border-white scale-[1.02]' : 'bg-[#1a1a1a] border-[#e67324]'}`}>
+      <div className={`transition-all duration-500 rounded-3xl p-12 text-center shadow-2xl relative overflow-hidden border-8 ${
+        isPriority
+          ? blink
+            ? 'bg-gradient-to-br from-red-600 via-[#e67324] to-red-600 border-yellow-400 scale-[1.03] ring-8 ring-red-500/50 animate-pulse animate-bounce'
+            : 'bg-gradient-to-br from-[#2b0e0e] to-[#141414] border-red-600 shadow-red-950/40'
+          : blink
+            ? 'bg-[#e67324] border-white scale-[1.02]'
+            : 'bg-[#1a1a1a] border-[#e67324]'
+      }`}>
         <div className="absolute top-0 right-0 w-96 h-96 bg-white/5 rounded-full -mr-48 -mt-48 pointer-events-none"></div>
         <div className="absolute bottom-0 left-0 w-96 h-96 bg-white/5 rounded-full -ml-48 -mb-48 pointer-events-none"></div>
         
-        <h2 className="text-2xl font-black text-[#e67324] uppercase tracking-[0.3em] mb-6">ÚLTIMA CHAMADA</h2>
-        {lastCalled ? (
-          <div className="space-y-4">
-            <p className={`text-7xl md:text-9xl font-black text-white tracking-tighter uppercase ${blink ? 'animate-bounce' : ''}`}>
-              {lastCalled.customerName}
-            </p>
-            <div className="inline-block bg-white text-[#1a1a1a] px-10 py-4 rounded-2xl text-3xl font-black shadow-lg">
-              SENHA: <span className="text-[#e67324]">{lastCalled.password}</span>
-            </div>
-            {blink && <div className="text-white font-bold animate-pulse text-xl mt-4 uppercase">POR FAVOR, COMPAREÇA AO ATENDIMENTO</div>}
+        {/* Faixa Superior de Atendimento Prioritário */}
+        {isPriority && (
+          <div className="absolute top-0 left-0 right-0 bg-red-600 text-white py-2 text-xs font-black uppercase tracking-[0.25em] flex items-center justify-center gap-2 animate-pulse shadow-md border-b-2 border-yellow-400">
+            <i className="fas fa-star text-yellow-300 animate-spin"></i>
+            <span>⭐ ATENDIMENTO PRIORITÁRIO ⭐</span>
+            <i className="fas fa-star text-yellow-300 animate-spin"></i>
           </div>
-        ) : (
-          <p className="text-4xl font-medium text-white/30 italic py-10 tracking-widest">AGUARDANDO CHAMADA...</p>
         )}
+
+        <div className={isPriority ? 'pt-6' : ''}>
+          <h2 className={`text-2xl font-black uppercase tracking-[0.3em] mb-6 ${isPriority ? 'text-red-400 animate-pulse' : 'text-[#e67324]'}`}>
+            ÚLTIMA CHAMADA
+          </h2>
+          {lastCalled ? (
+            <div className="space-y-6">
+              {isPriority && (
+                <div className="flex justify-center items-center gap-2 bg-red-600 text-white font-black text-xs px-4 py-1.5 rounded-full uppercase tracking-wider w-max mx-auto border border-yellow-400 shadow-md">
+                  <i className="fas fa-shield-alt text-yellow-300"></i>
+                  <span>Prioridade de Lei</span>
+                </div>
+              )}
+              <p className={`text-7xl md:text-9xl font-black text-white tracking-tighter uppercase ${blink ? 'animate-bounce' : ''}`}>
+                {lastCalled.customerName}
+              </p>
+              
+              <div className={`inline-block px-12 py-5 rounded-2xl text-3xl font-black shadow-2xl transition-all ${
+                isPriority
+                  ? blink
+                    ? 'bg-yellow-400 text-red-950 border-4 border-white scale-110 shadow-yellow-500/50'
+                    : 'bg-red-600 text-white border-2 border-red-400'
+                  : 'bg-white text-[#1a1a1a]'
+              }`}>
+                SENHA: <span className={isPriority ? (blink ? 'text-red-950' : 'text-yellow-300') : 'text-[#e67324]'}>{lastCalled.password}</span>
+              </div>
+              
+              {blink && (
+                <div className="text-white font-black animate-pulse text-xl mt-4 uppercase tracking-widest flex items-center justify-center gap-2">
+                  <i className="fas fa-bullhorn text-yellow-300 animate-bounce"></i>
+                  <span>POR FAVOR, COMPAREÇA AO ATENDIMENTO EXTERNO</span>
+                  <i className="fas fa-bullhorn text-yellow-300 animate-bounce"></i>
+                </div>
+              )}
+            </div>
+          ) : (
+            <p className="text-4xl font-medium text-white/30 italic py-10 tracking-widest">AGUARDANDO CHAMADA...</p>
+          )}
+        </div>
       </div>
 
       {/* Estatísticas Rápidas */}
@@ -129,17 +172,29 @@ const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ tickets = [] }) =
             <i className="fas fa-check-double text-emerald-100 text-3xl"></i>
           </h3>
           <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2">
-            {ready.map(t => (
-              <div key={t.id} className="bg-emerald-50 p-6 rounded-2xl flex justify-between items-center animate-slideUp border border-emerald-100">
-                <div className="flex-1">
-                  <p className="font-black text-2xl text-emerald-900 tracking-tight leading-none mb-1 uppercase">{t.customerName}</p>
-                  <p className="text-sm font-bold text-emerald-600 uppercase tracking-widest">{t.password}</p>
+            {ready.map(t => {
+              const isPri = t.priority === Priority.PRIORITY;
+              return (
+                <div key={t.id} className={`p-6 rounded-2xl flex justify-between items-center animate-slideUp border transition-all ${
+                  isPri 
+                    ? 'bg-gradient-to-r from-red-50 to-amber-50 border-red-300 ring-2 ring-red-500/20 shadow-md' 
+                    : 'bg-emerald-50 border-emerald-100'
+                }`}>
+                  <div className="flex-1">
+                    {isPri && (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[9px] font-black bg-red-600 text-white uppercase tracking-wider mb-2 animate-pulse">
+                        <i className="fas fa-star text-yellow-300"></i> Prioritário
+                      </span>
+                    )}
+                    <p className={`font-black text-2xl tracking-tight leading-none mb-1 uppercase ${isPri ? 'text-red-950' : 'text-emerald-900'}`}>{t.customerName}</p>
+                    <p className={`text-sm font-bold uppercase tracking-widest ${isPri ? 'text-red-600 font-extrabold' : 'text-emerald-600'}`}>{t.password}</p>
+                  </div>
+                  <div className={`w-12 h-12 rounded-full flex items-center justify-center shadow-sm transition-all ${isPri ? 'bg-red-600 text-white animate-pulse' : 'bg-white text-emerald-500'}`}>
+                    <i className="fas fa-arrow-right"></i>
+                  </div>
                 </div>
-                <div className="bg-white w-12 h-12 rounded-full flex items-center justify-center text-emerald-500 shadow-sm">
-                  <i className="fas fa-arrow-right"></i>
-                </div>
-              </div>
-            ))}
+              );
+            })}
             {ready.length === 0 && <p className="text-gray-300 text-center py-10 font-bold italic uppercase tracking-widest">Sem pedidos prontos</p>}
           </div>
         </div>
@@ -153,15 +208,27 @@ const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ tickets = [] }) =
             <i className="fas fa-spinner text-amber-100 text-3xl"></i>
           </h3>
           <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2">
-            {inSeparation.map(t => (
-              <div key={t.id} className="bg-amber-50 p-6 rounded-2xl flex justify-between items-center border border-amber-100">
-                <div className="flex-1">
-                  <p className="font-black text-xl text-amber-900 tracking-tight leading-none mb-1 uppercase">{t.customerName}</p>
-                  <p className="text-sm font-bold text-amber-600 uppercase tracking-widest">{t.password}</p>
+            {inSeparation.map(t => {
+              const isPri = t.priority === Priority.PRIORITY;
+              return (
+                <div key={t.id} className={`p-6 rounded-2xl flex justify-between items-center border transition-all ${
+                  isPri 
+                    ? 'bg-gradient-to-r from-red-50 to-amber-50 border-red-300 ring-2 ring-red-500/20 shadow-md' 
+                    : 'bg-amber-50 border-amber-100'
+                }`}>
+                  <div className="flex-1">
+                    {isPri && (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[9px] font-black bg-red-600 text-white uppercase tracking-wider mb-2 animate-pulse">
+                        <i className="fas fa-star text-yellow-300"></i> Prioritário
+                      </span>
+                    )}
+                    <p className={`font-black text-xl tracking-tight leading-none mb-1 uppercase ${isPri ? 'text-red-950' : 'text-amber-900'}`}>{t.customerName}</p>
+                    <p className={`text-sm font-bold uppercase tracking-widest ${isPri ? 'text-red-600 font-extrabold' : 'text-amber-600'}`}>{t.password}</p>
+                  </div>
+                  <i className={`fas fa-box-open animate-pulse text-2xl ${isPri ? 'text-red-500' : 'text-amber-200'}`}></i>
                 </div>
-                <i className="fas fa-box-open text-amber-200 animate-pulse text-2xl"></i>
-              </div>
-            ))}
+              );
+            })}
             {inSeparation.length === 0 && <p className="text-gray-300 text-center py-10 font-bold italic uppercase tracking-widest">Sem separações ativas</p>}
           </div>
         </div>
@@ -175,17 +242,28 @@ const CustomerDashboard: React.FC<CustomerDashboardProps> = ({ tickets = [] }) =
             <i className="fas fa-clock text-white/5 text-3xl"></i>
           </h3>
           <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2">
-            {waiting.map(t => (
-              <div key={t.id} className="bg-white/5 p-6 rounded-2xl flex justify-between items-center border border-white/5">
-                <div className="flex-1">
-                  <p className="font-black text-xl text-white tracking-tight leading-none mb-1 uppercase">{t.customerName}</p>
-                  <p className="text-sm font-bold text-gray-500 uppercase tracking-widest">{t.password}</p>
+            {waiting.map(t => {
+              const isPri = t.priority === Priority.PRIORITY;
+              return (
+                <div key={t.id} className={`p-6 rounded-2xl flex justify-between items-center border transition-all ${
+                  isPri 
+                    ? 'bg-gradient-to-r from-[#3d1a1a] to-[#241313] border-red-500/50 ring-2 ring-red-500/30' 
+                    : 'bg-white/5 border-white/5'
+                }`}>
+                  <div className="flex-1">
+                    <p className="font-black text-xl text-white tracking-tight leading-none mb-1 uppercase">{t.customerName}</p>
+                    <p className="text-sm font-bold text-gray-500 uppercase tracking-widest">{t.password}</p>
+                  </div>
+                  {isPri ? (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[9px] font-black bg-red-600 text-white uppercase tracking-wider animate-pulse border border-yellow-400">
+                      <i className="fas fa-exclamation-triangle text-yellow-300"></i> Prioritário
+                    </span>
+                  ) : (
+                    <div className="w-2 h-2 bg-gray-650 rounded-full"></div>
+                  )}
                 </div>
-                {t.priority === Priority.PRIORITY && (
-                  <div className="w-3 h-3 bg-red-600 rounded-full animate-pulse"></div>
-                )}
-              </div>
-            ))}
+              );
+            })}
             {waiting.length === 0 && <p className="text-gray-600 text-center py-10 font-bold italic uppercase tracking-widest">Fila vazia</p>}
           </div>
         </div>

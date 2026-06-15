@@ -69,7 +69,7 @@ const ReceptionModule: React.FC<ReceptionModuleProps> = ({ onAddTicket, tickets 
             </div>
             <div className="space-y-1">
               <label className="text-[10px] font-black uppercase text-gray-500 ml-1">Número do Pedido</label>
-              <input required type="text" placeholder="Ex: 12345" className="w-full p-4 bg-gray-50 border-2 border-transparent focus:border-[#e67324] rounded-xl outline-none transition-all font-bold" value={formData.orderNumber} onChange={e => setFormData({...formData, orderNumber: e.target.value})} />
+              <input required type="text" placeholder="Ex: 12345" className="w-full p-4 bg-gray-50 border-2 border-transparent focus:border-[#e67324] rounded-xl outline-none transition-all font-bold uppercase" value={formData.orderNumber} onChange={e => setFormData({...formData, orderNumber: e.target.value.toUpperCase()})} />
             </div>
           </div>
 
