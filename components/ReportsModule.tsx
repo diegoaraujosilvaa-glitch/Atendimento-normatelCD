@@ -191,7 +191,14 @@ const ReportsModule: React.FC = () => {
                     <td className="px-4 py-4 font-black">{t.password}</td>
                     <td className="px-4 py-4 font-bold text-gray-600">#{t.orderNumber}</td>
                     <td className="px-4 py-4 font-medium uppercase text-[12px]">{t.customerName}</td>
-                    <td className="px-4 py-4 text-[11px] font-bold text-gray-500 uppercase">{t.clientType}</td>
+                    <td className="px-4 py-4 text-[11.5px] font-bold text-gray-500 uppercase">
+                      {t.clientType}
+                      {t.collectorName && (
+                        <div className="text-[10px] text-[#e67324] font-black mt-0.5 uppercase">
+                          Coletor: {t.collectorName}
+                        </div>
+                      )}
+                    </td>
                     <td className="px-4 py-4 font-mono text-[12px]">{formatTime(t.arrivalTime)}</td>
                     <td className="px-4 py-4 font-mono text-[12px]">{formatTime(t.finishTime)}</td>
                     <td className="px-4 py-4 font-black text-[#e67324]">{calculateDuration(t.arrivalTime, t.finishTime)}</td>

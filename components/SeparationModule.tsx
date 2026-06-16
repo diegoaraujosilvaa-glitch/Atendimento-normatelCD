@@ -57,6 +57,11 @@ const SeparationModule: React.FC<SeparationModuleProps> = ({ tickets, onUpdateSt
                   <p className="text-[9px] font-black text-[#e67324] uppercase tracking-wider">
                     <i className="fas fa-user-tag mr-1"></i> {ticket.clientType} • <i className="fas fa-truck mr-1"></i> {ticket.vehicleType}
                   </p>
+                  {ticket.collectorName && (
+                    <div className="mt-1 bg-[#e67324]/10 text-[#e67324] px-2 py-1 rounded-lg text-[9px] font-black uppercase flex items-center gap-1 w-max animate-pulse">
+                      <i className="fas fa-id-card"></i> COLETADOR: {ticket.collectorName}
+                    </div>
+                  )}
                 </div>
                 <button onClick={() => onUpdateStatus(ticket.id, TicketStatus.READY)} className="w-full bg-[#1a1a1a] hover:bg-[#e67324] text-white py-3 rounded-xl font-black transition-all uppercase text-[10px] tracking-widest">
                   CONCLUIR SEPARAÇÃO
@@ -73,7 +78,10 @@ const SeparationModule: React.FC<SeparationModuleProps> = ({ tickets, onUpdateSt
                   )}
                 </div>
                 <div className="mb-3">
-                  <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">{ticket.password} • {ticket.clientType}</p>
+                  <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">
+                    {ticket.password} • {ticket.clientType}
+                    {ticket.collectorName ? ` (${ticket.collectorName})` : ''}
+                  </p>
                   <p className="text-[8px] font-black text-gray-500 uppercase mt-0.5"><i className="fas fa-truck-pickup mr-1"></i> {ticket.vehicleType}</p>
                 </div>
                 <button onClick={() => onUpdateStatus(ticket.id, TicketStatus.IN_SEPARATION)} className="w-full border-2 border-[#1a1a1a] text-[#1a1a1a] group-hover:bg-[#1a1a1a] group-hover:text-white py-2 rounded-xl font-black transition-all uppercase text-[9px] tracking-widest">
@@ -102,7 +110,10 @@ const SeparationModule: React.FC<SeparationModuleProps> = ({ tickets, onUpdateSt
                   <h4 className="font-black text-lg text-amber-900 tracking-tighter uppercase leading-none mb-1">{ticket.customerName}</h4>
                   <p className="text-[10px] font-bold text-amber-600 uppercase mb-1">{ticket.password} • #{ticket.orderNumber}</p>
                   <div className="flex flex-wrap gap-2 mt-2">
-                    <span className="bg-amber-100 text-amber-700 text-[8px] font-black px-2 py-0.5 rounded uppercase">{ticket.clientType}</span>
+                    <span className="bg-amber-100 text-amber-700 text-[8px] font-black px-2 py-0.5 rounded uppercase">
+                      {ticket.clientType}
+                      {ticket.collectorName ? ` (${ticket.collectorName})` : ''}
+                    </span>
                     <span className="bg-gray-100 text-gray-600 text-[8px] font-black px-2 py-0.5 rounded uppercase"><i className="fas fa-truck mr-1"></i> {ticket.vehicleType}</span>
                   </div>
                 </div>
@@ -135,7 +146,10 @@ const SeparationModule: React.FC<SeparationModuleProps> = ({ tickets, onUpdateSt
                       {ticket.password} • Chamado às {ticket.callTime ? new Date(ticket.callTime).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : '--:--'}
                     </p>
                     <div className="flex items-center gap-2 mt-1">
-                      <span className="text-[9px] font-black text-emerald-700 uppercase">{ticket.clientType}</span>
+                      <span className="text-[9px] font-black text-emerald-700 uppercase">
+                        {ticket.clientType}
+                        {ticket.collectorName ? ` (${ticket.collectorName})` : ''}
+                      </span>
                       <span className="text-gray-300">|</span>
                       <span className="text-[9px] font-black text-gray-500 uppercase"><i className="fas fa-truck mr-1"></i> {ticket.vehicleType}</span>
                     </div>
@@ -178,7 +192,10 @@ const SeparationModule: React.FC<SeparationModuleProps> = ({ tickets, onUpdateSt
                   <td className="px-6 py-4 font-black text-gray-900">{t.password}</td>
                   <td className="px-6 py-4 font-medium uppercase">{t.customerName}</td>
                   <td className="px-6 py-4">
-                    <p className="font-bold text-gray-500">{t.clientType}</p>
+                    <p className="font-bold text-gray-500">
+                      {t.clientType}
+                      {t.collectorName ? ` (${t.collectorName})` : ''}
+                    </p>
                     <p className="text-[9px] text-gray-400 uppercase">{t.vehicleType}</p>
                   </td>
                   <td className="px-6 py-4">

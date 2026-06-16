@@ -11,6 +11,7 @@ interface ReceptionModuleProps {
 const ReceptionModule: React.FC<ReceptionModuleProps> = ({ onAddTicket, tickets }) => {
   const [formData, setFormData] = useState({
     customerName: '',
+    collectorName: '',
     priority: Priority.NORMAL,
     clientType: ClientType.CLIENT,
     vehicleType: VehicleType.PASSENGER,
@@ -19,15 +20,31 @@ const ReceptionModule: React.FC<ReceptionModuleProps> = ({ onAddTicket, tickets 
 
   const [isLoading, setIsLoading] = useState(false);
 
+  // Determinar se o nome de quem coleta é obrigatório
+  const isCollectorRequired = formData.clientType === ClientType.REPRESENTATIVE || formData.clientType === ClientType.FREIGHT;
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.customerName || !formData.orderNumber) return;
     
+    if (isCollectorRequired && !formData.collectorName.trim()) {
+      alert("Por favor, preencha o Nome de quem está coletando.");
+      return;
+    }
+    
     setIsLoading(true);
     try {
-      await onAddTicket(formData);
+      await onAddTicket({
+        customerName: formData.customerName,
+        collectorName: isCollectorRequired ? formData.collectorName.trim() : '',
+        priority: formData.priority,
+        clientType: formData.clientType,
+        vehicleType: formData.vehicleType,
+        orderNumber: formData.orderNumber,
+      });
       setFormData({
         customerName: '',
+        collectorName: '',
         priority: Priority.NORMAL,
         clientType: ClientType.CLIENT,
         vehicleType: VehicleType.PASSENGER,
@@ -95,6 +112,22 @@ const ReceptionModule: React.FC<ReceptionModuleProps> = ({ onAddTicket, tickets 
             </div>
           </div>
 
+          {isCollectorRequired && (
+            <div className="space-y-1 p-4 bg-orange-50 border border-orange-200 rounded-2xl animate-fadeIn">
+              <label className="text-[10px] font-black uppercase text-[#e67324] ml-1 flex items-center gap-1">
+                <i className="fas fa-id-card"></i> Nome de quem está coletando <span className="text-red-500">*</span>
+              </label>
+              <input 
+                required 
+                type="text" 
+                placeholder="NOME DO COLETADOR / MOTORISTA / REPRESENTANTE" 
+                className="w-full p-4 bg-white border-2 border-transparent focus:border-[#e67324] rounded-xl outline-none transition-all font-bold uppercase shadow-sm" 
+                value={formData.collectorName} 
+                onChange={e => setFormData({...formData, collectorName: e.target.value.toUpperCase()})} 
+              />
+            </div>
+          )}
+
           <button disabled={isLoading} type="submit" className="w-full bg-[#e67324] hover:bg-[#1a1a1a] text-white font-black py-5 rounded-2xl shadow-xl transition-all active:scale-[0.98] uppercase tracking-widest text-sm flex items-center justify-center gap-3 disabled:opacity-50">
             {isLoading ? <i className="fas fa-circle-notch fa-spin"></i> : <i className="fas fa-ticket"></i>}
             GERAR SENHA EM NUVEM
@@ -119,7 +152,10 @@ const ReceptionModule: React.FC<ReceptionModuleProps> = ({ onAddTicket, tickets 
               <div key={ticket.id} className="flex items-center justify-between border-b pb-4 last:border-0 last:pb-0">
                 <div>
                   <p className="font-black text-gray-900 leading-none mb-1 uppercase text-xs">{ticket.customerName}</p>
-                  <p className="text-[10px] font-bold text-[#e67324]">{ticket.password} • #{ticket.orderNumber}</p>
+                  <p className="text-[10px] font-bold text-[#e67324]">
+                    {ticket.password} • #{ticket.orderNumber}
+                    {ticket.collectorName ? ` • COLETADOR: ${ticket.collectorName}` : ''}
+                  </p>
                 </div>
                 {ticket.priority === Priority.PRIORITY && (
                   <span className="bg-red-100 text-red-600 text-[10px] font-black px-2 py-1 rounded">PRIO</span>

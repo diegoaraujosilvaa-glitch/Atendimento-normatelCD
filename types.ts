@@ -30,6 +30,7 @@ export interface Ticket {
   id: string;
   password: string;
   customerName: string;
+  collectorName?: string;
   priority: Priority;
   clientType: ClientType;
   vehicleType: VehicleType;
