@@ -16,6 +16,7 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSelect, initialDate, cu
   const modules: { id: AppModule; label: string; icon: any; desc: string; adminOnly?: boolean }[] = [
     { id: 'reception', label: 'RECEPÇÃO', icon: ICONS.RECEPTION, desc: 'Cadastro e triagem de clientes.' },
     { id: 'separation', label: 'OPERACIONAL', icon: ICONS.SEPARATION, desc: 'Separação de pedidos e chamadas.' },
+    { id: 'prisma', label: 'PRISMA (PORTARIA)', icon: ICONS.PRISMA, desc: 'Entrada, saída e permanência no CD.' },
     { id: 'dashboard', label: 'PAINEL TV', icon: ICONS.DASHBOARD, desc: 'Visualização para clientes na loja.' },
     { id: 'reports', label: 'RELATÓRIOS', icon: ICONS.REPORTS, desc: 'Análise de dados e histórico.' },
     { id: 'users', label: 'USUÁRIOS', icon: <i className="fas fa-users-cog"></i>, desc: 'Gerenciar acessos ao sistema.', adminOnly: true },

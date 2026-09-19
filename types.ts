@@ -56,4 +56,29 @@ export interface User {
   name: string;
 }
 
-export type AppModule = 'reception' | 'separation' | 'dashboard' | 'reports' | 'users';
+export type AppModule = 'reception' | 'separation' | 'dashboard' | 'reports' | 'users' | 'prisma';
+
+export type PrismaClientType = 'CLIENTE' | 'FRETE';
+
+export interface PrismaTargetConfig {
+  clientTargetMinutes: number;
+  freightTargetMinutes: number;
+}
+
+export interface PrismaEntry {
+  id: string;
+  sessionDate: string;
+  clientType: PrismaClientType;
+  plate: string;
+  orderNumber: string;
+  vehicleType: string;
+  driverName?: string;
+  entryTime: Date;
+  exitTime?: Date;
+  durationMinutes?: number;
+  status: 'IN_CD' | 'COMPLETED' | 'CANCELLED';
+  problemJustification?: string;
+  targetMinutes: number;
+  withinTarget?: boolean;
+  registeredBy?: string;
+}

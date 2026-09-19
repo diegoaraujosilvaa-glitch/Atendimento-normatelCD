@@ -20,4 +20,6 @@ export const ICONS = {
   USER: <i className="fas fa-user"></i>,
   TRUCK: <i className="fas fa-truck"></i>,
   CALENDAR: <i className="fas fa-calendar-alt"></i>,
+  PRISMA: <i className="fas fa-warehouse"></i>,
+  GATE: <i className="fas fa-shield-halved"></i>,
 };
