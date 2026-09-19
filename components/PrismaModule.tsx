@@ -54,7 +54,12 @@ const PrismaModule: React.FC<PrismaModuleProps> = ({ sessionDate, currentUser, t
   const [exitJustification, setExitJustification] = useState('');
   const [customJustification, setCustomJustification] = useState('');
 
-  // Filtros da tabela
+  // Filtros da tabela e intervalo de datas para relatórios
+  const [dateFilterMode, setDateFilterMode] = useState<'DAY' | 'RANGE'>('DAY');
+  const [startDate, setStartDate] = useState(sessionDate || new Date().toISOString().split('T')[0]);
+  const [endDate, setEndDate] = useState(sessionDate || new Date().toISOString().split('T')[0]);
+  const [isLoadingRange, setIsLoadingRange] = useState(false);
+
   const [activeTab, setActiveTab] = useState<'IN_CD' | 'COMPLETED' | 'BREACHED' | 'ALL'>('IN_CD');
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -65,14 +70,56 @@ const PrismaModule: React.FC<PrismaModuleProps> = ({ sessionDate, currentUser, t
     return () => clearInterval(timer);
   }, []);
 
-  // Escuta registros do PRISMA no Firestore
+  // Sincroniza com sessionDate se em modo diário
   useEffect(() => {
-    if (!sessionDate) return;
-    const unsub = DataService.subscribePrismaEntries(sessionDate, (items) => {
+    if (sessionDate && dateFilterMode === 'DAY') {
+      setStartDate(sessionDate);
+      setEndDate(sessionDate);
+    }
+  }, [sessionDate, dateFilterMode]);
+
+  // Escuta registros do PRISMA no Firestore (diário ou intervalo de datas)
+  useEffect(() => {
+    const start = dateFilterMode === 'DAY' ? (sessionDate || startDate) : startDate;
+    const end = dateFilterMode === 'DAY' ? (sessionDate || endDate) : endDate;
+
+    if (!start || !end) return;
+    setIsLoadingRange(true);
+
+    const unsub = DataService.subscribePrismaEntriesByDateRange(start, end, (items) => {
       setEntries(items);
+      setIsLoadingRange(false);
     });
     return () => unsub();
-  }, [sessionDate]);
+  }, [sessionDate, dateFilterMode, startDate, endDate]);
+
+  // Métodos de seleção rápida de período (Hoje, Este Mês, Mês Passado, Últimos 7 dias)
+  const setRangePreset = (preset: 'today' | 'this_month' | 'last_month' | 'last_7_days') => {
+    const today = new Date();
+    const todayStr = today.toISOString().split('T')[0];
+
+    if (preset === 'today') {
+      setDateFilterMode('DAY');
+      setStartDate(sessionDate || todayStr);
+      setEndDate(sessionDate || todayStr);
+    } else if (preset === 'this_month') {
+      setDateFilterMode('RANGE');
+      const firstDay = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
+      setStartDate(firstDay);
+      setEndDate(todayStr);
+    } else if (preset === 'last_month') {
+      setDateFilterMode('RANGE');
+      const firstDayLastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1).toISOString().split('T')[0];
+      const lastDayLastMonth = new Date(today.getFullYear(), today.getMonth(), 0).toISOString().split('T')[0];
+      setStartDate(firstDayLastMonth);
+      setEndDate(lastDayLastMonth);
+    } else if (preset === 'last_7_days') {
+      setDateFilterMode('RANGE');
+      const sevenDaysAgo = new Date(today.getTime() - 6 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      setStartDate(sevenDaysAgo);
+      setEndDate(todayStr);
+    }
+  };
 
   // Escuta configuração de metas
   useEffect(() => {
@@ -318,12 +365,13 @@ const PrismaModule: React.FC<PrismaModuleProps> = ({ sessionDate, currentUser, t
       ].join(";");
     });
 
+    const rangeSuffix = dateFilterMode === 'RANGE' ? `${startDate}_a_${endDate}` : sessionDate;
     const csvContent = "\uFEFF" + [headers.join(";"), ...rows].join("\r\n");
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.setAttribute("href", url);
-    link.setAttribute("download", `prisma_permanencia_cd_${sessionDate}.csv`);
+    link.setAttribute("download", `prisma_permanencia_cd_${rangeSuffix}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -332,7 +380,7 @@ const PrismaModule: React.FC<PrismaModuleProps> = ({ sessionDate, currentUser, t
   return (
     <div className="space-y-8 animate-fadeIn pb-12">
       {/* CABEÇALHO DO MÓDULO */}
-      <div className="bg-white p-3.5 sm:p-5 md:p-6 rounded-2xl border border-gray-200 shadow-sm flex items-center justify-between gap-3">
+      <div className="bg-white p-3.5 sm:p-5 md:p-6 rounded-2xl border border-gray-200 shadow-sm flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2.5 sm:gap-3.5 min-w-0">
           <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-[#1a1a1a] text-[#e67324] flex items-center justify-center text-base sm:text-xl shadow-md shrink-0">
             <i className="fas fa-warehouse"></i>
@@ -375,6 +423,113 @@ const PrismaModule: React.FC<PrismaModuleProps> = ({ sessionDate, currentUser, t
             <i className="fas fa-file-csv text-sm sm:text-base"></i>
             <span className="hidden sm:inline">Exportar CSV</span>
           </button>
+        </div>
+      </div>
+
+      {/* BARRA DE FILTRO DE INTERVALO DE DATAS (RELATÓRIO DO MÊS / PERÍODO) */}
+      <div className="bg-white p-4 sm:p-5 rounded-2xl border border-gray-200 shadow-sm">
+        <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-orange-50 text-[#e67324] flex items-center justify-center text-base shrink-0 border border-orange-200">
+              <i className="fas fa-calendar-days"></i>
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-xs sm:text-sm font-black uppercase tracking-wider text-gray-900">
+                  Período de Análise e Relatório
+                </h3>
+                {isLoadingRange && (
+                  <i className="fas fa-spinner fa-spin text-xs text-[#e67324]"></i>
+                )}
+              </div>
+              <p className="text-[10px] text-gray-500 font-bold uppercase mt-0.5">
+                {dateFilterMode === 'DAY' ? `Visualizando o dia: ${startDate}` : `Filtrando intervalo: de ${startDate} até ${endDate}`}
+              </p>
+            </div>
+          </div>
+
+          {/* Atalhos Rápidos e Controles de Data */}
+          <div className="flex flex-wrap items-center gap-2.5 w-full lg:w-auto">
+            {/* Atalhos Rápidos */}
+            <div className="flex items-center bg-gray-100 p-1 rounded-xl text-[10px] font-black uppercase text-gray-600">
+              <button
+                type="button"
+                onClick={() => setRangePreset('today')}
+                className={`px-2.5 py-1.5 rounded-lg transition-all ${
+                  dateFilterMode === 'DAY' ? 'bg-[#1a1a1a] text-white shadow-xs' : 'hover:text-gray-900'
+                }`}
+              >
+                Hoje
+              </button>
+              <button
+                type="button"
+                onClick={() => setRangePreset('last_7_days')}
+                className={`px-2.5 py-1.5 rounded-lg transition-all ${
+                  dateFilterMode === 'RANGE' && startDate !== endDate && !startDate.endsWith('-01') ? 'bg-[#e67324] text-white shadow-xs' : 'hover:text-gray-900'
+                }`}
+              >
+                7 Dias
+              </button>
+              <button
+                type="button"
+                onClick={() => setRangePreset('this_month')}
+                className={`px-2.5 py-1.5 rounded-lg transition-all ${
+                  dateFilterMode === 'RANGE' && startDate.endsWith('-01') ? 'bg-[#e67324] text-white shadow-xs' : 'hover:text-gray-900'
+                }`}
+                title="Relatório do Mês Atual Completo"
+              >
+                Este Mês
+              </button>
+              <button
+                type="button"
+                onClick={() => setRangePreset('last_month')}
+                className="px-2.5 py-1.5 rounded-lg hover:text-gray-900 transition-all"
+                title="Relatório do Mês Anterior"
+              >
+                Mês Passado
+              </button>
+            </div>
+
+            {/* Inputs de Data Personalizada */}
+            <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 p-1 rounded-xl text-xs">
+              <div className="flex items-center gap-1 px-1">
+                <span className="text-[10px] font-black uppercase text-gray-400">De:</span>
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => {
+                    setStartDate(e.target.value);
+                    setDateFilterMode('RANGE');
+                  }}
+                  className="bg-white border border-gray-200 text-gray-800 text-xs font-bold rounded-lg px-2 py-1 outline-none focus:border-[#e67324]"
+                />
+              </div>
+
+              <div className="flex items-center gap-1 px-1">
+                <span className="text-[10px] font-black uppercase text-gray-400">Até:</span>
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => {
+                    setEndDate(e.target.value);
+                    setDateFilterMode('RANGE');
+                  }}
+                  className="bg-white border border-gray-200 text-gray-800 text-xs font-bold rounded-lg px-2 py-1 outline-none focus:border-[#e67324]"
+                />
+              </div>
+
+              {dateFilterMode === 'RANGE' && (
+                <button
+                  type="button"
+                  onClick={() => setRangePreset('today')}
+                  className="px-2 py-1 bg-gray-200 hover:bg-gray-300 text-gray-700 text-[10px] font-black rounded-lg uppercase tracking-wider transition-colors"
+                  title="Voltar para a data atual"
+                >
+                  Limpar
+                </button>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -776,10 +931,15 @@ const PrismaModule: React.FC<PrismaModuleProps> = ({ sessionDate, currentUser, t
         <div className="bg-gray-50 p-5 border-b flex flex-wrap justify-between items-center gap-4">
           <div>
             <h3 className="text-xs font-black uppercase tracking-wider text-gray-800 flex items-center gap-2">
-              <i className="fas fa-clock-rotate-left text-[#e67324]"></i> HISTÓRICO GERAL DE ENTRADAS & SAÍDAS (PORTARIA)
+              <i className="fas fa-clock-rotate-left text-[#e67324]"></i> HISTÓRICO DE ENTRADAS & SAÍDAS (PORTARIA)
+              {dateFilterMode === 'RANGE' && (
+                <span className="bg-[#e67324]/10 text-[#e67324] text-[9px] font-black px-2 py-0.5 rounded-md">
+                  {startDate} até {endDate} ({entries.length} registros)
+                </span>
+              )}
             </h3>
             <p className="text-[10px] text-gray-400 font-bold uppercase mt-0.5">
-              Auditoria de tempos de permanência e justificativas de desvios
+              Auditoria de tempos de permanência, SLA e justificativas de desvios no período
             </p>
           </div>
 

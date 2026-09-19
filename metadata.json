@@ -1,6 +1,6 @@
 {
   "name": "Normatel - Sistema de Gestão de Atendimento",
-  "description": "Sistema inteligente de gestão de filas, separação de pedidos e módulo PRISMA para controle de permanência de veículos na portaria do CD.",
+  "description": "Sistema Atendimento Home Center de gestão de filas, separação de pedidos e módulo PRISMA com relatórios por intervalo de datas para controle de permanência de veículos no CD.",
   "requestFramePermissions": [
     "microphone"
   ],

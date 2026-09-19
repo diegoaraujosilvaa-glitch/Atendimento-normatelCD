@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { User } from '../types';
-import { LOGO_URL } from '../constants';
+import { LOGO_URL, BRAND_NAME } from '../constants';
 
 interface LoginScreenProps {
   onLogin: (user: User) => void;
@@ -55,10 +55,12 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
       <div className="max-w-md w-full bg-[#2a2a2a] rounded-3xl p-8 border border-[#3a3a3a] shadow-2xl animate-fadeIn">
         <div className="text-center mb-10">
           <div className="inline-block bg-white p-3 rounded-2xl mb-6 shadow-xl border-2 border-[#e67324]">
-            <img src={LOGO_URL} alt="Normatel Logo" className="max-w-[100px] h-auto object-contain" />
+            <img src={LOGO_URL} alt={BRAND_NAME} className="max-w-[110px] h-auto object-contain rounded-xl" />
           </div>
           <h1 className="text-2xl font-black text-white tracking-tighter uppercase leading-none">
-            SISTEMA DE GESTÃO <br/><span className="text-[#e67324] text-lg uppercase tracking-widest font-bold">Logística e Vendas</span>
+            ATENDIMENTO <span className="text-[#e67324]">HOME CENTER</span>
+            <br/>
+            <span className="text-gray-400 text-xs uppercase tracking-widest font-bold mt-2 block">Sistema de Gestão Integrada</span>
           </h1>
           <div className="h-1 w-12 bg-[#e67324] mx-auto mt-4 rounded-full"></div>
         </div>

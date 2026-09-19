@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { AppModule, User } from '../types';
-import { ICONS, LOGO_URL } from '../constants';
+import { ICONS, LOGO_URL, BRAND_NAME } from '../constants';
 
 interface WelcomeScreenProps {
   onSelect: (module: AppModule, date: string) => void;
@@ -44,10 +44,10 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSelect, initialDate, cu
       <div className="max-w-4xl w-full z-10">
         <div className="text-center mb-12">
           <div className="inline-block bg-white p-3 rounded-3xl mb-8 shadow-2xl border-4 border-[#e67324] animate-bounce">
-            <img src={LOGO_URL} alt="Normatel Logo" className="max-w-[140px] h-auto object-contain" />
+            <img src={LOGO_URL} alt={BRAND_NAME} className="max-w-[140px] h-auto object-contain rounded-2xl" />
           </div>
           <h1 className="text-4xl font-black text-white tracking-tighter mb-2 uppercase">
-            NORMATEL <span className="text-[#e67324]">HOME CENTER</span>
+            ATENDIMENTO <span className="text-[#e67324]">HOME CENTER</span>
           </h1>
           <p className="text-gray-400 font-medium text-lg uppercase tracking-widest text-[11px]">Sistema Inteligente de Gestão de Atendimento</p>
         </div>

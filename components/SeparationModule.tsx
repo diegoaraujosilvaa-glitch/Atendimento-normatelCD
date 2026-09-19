@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Ticket, TicketStatus, Priority } from '../types';
 
 interface SeparationModuleProps {
@@ -21,11 +21,52 @@ const SeparationModule: React.FC<SeparationModuleProps> = ({ tickets, onUpdateSt
   const [selectedReason, setSelectedReason] = useState<string>(CANCELLATION_REASONS[0]);
   const [customReason, setCustomReason] = useState<string>('');
   const [tableFilter, setTableFilter] = useState<'active' | 'cancelled' | 'finished' | 'all'>('active');
+  const [currentTime, setCurrentTime] = useState<number>(Date.now());
+
+  // Limite configurado de espera (reativo e sincronizado)
+  const [alertThresholdMinutes, setAlertThresholdMinutes] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('normatel_reception_alert_threshold');
+      if (saved) return Number(saved) || 25;
+    } catch (e) {}
+    return 25;
+  });
+
+  // Helper ultra seguro para extrair milissegundos de qualquer formato de data
+  const getArrivalMs = (arrivalTime: any): number => {
+    if (!arrivalTime) return 0;
+    if (typeof arrivalTime === 'object') {
+      if (typeof arrivalTime.toMillis === 'function') return arrivalTime.toMillis();
+      if (typeof arrivalTime.toDate === 'function') return arrivalTime.toDate().getTime();
+      if (typeof arrivalTime.seconds === 'number') return arrivalTime.seconds * 1000;
+    }
+    const ms = new Date(arrivalTime).getTime();
+    return isNaN(ms) ? 0 : ms;
+  };
+
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(Date.now()), 5000);
+    const syncThreshold = () => {
+      try {
+        const saved = localStorage.getItem('normatel_reception_alert_threshold');
+        if (saved) setAlertThresholdMinutes(Number(saved) || 25);
+      } catch (e) {}
+    };
+
+    window.addEventListener('normatel_threshold_updated', syncThreshold);
+    window.addEventListener('storage', syncThreshold);
+
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('normatel_threshold_updated', syncThreshold);
+      window.removeEventListener('storage', syncThreshold);
+    };
+  }, []);
 
   const sortTickets = (list: Ticket[]) => {
     return [...list].sort((a, b) => {
       if (a.priority !== b.priority) return a.priority === Priority.PRIORITY ? -1 : 1;
-      return new Date(a.arrivalTime).getTime() - new Date(b.arrivalTime).getTime();
+      return getArrivalMs(a.arrivalTime) - getArrivalMs(b.arrivalTime);
     });
   };
 
@@ -117,41 +158,56 @@ const SeparationModule: React.FC<SeparationModuleProps> = ({ tickets, onUpdateSt
               </div>
             ))}
 
-            {waiting.map(ticket => (
-              <div key={ticket.id} className="bg-white border border-gray-200 rounded-2xl p-4 hover:border-[#e67324] transition-all group shadow-sm">
-                <div className="flex justify-between items-center mb-1">
-                  <h4 className="font-black text-base text-gray-800 tracking-tighter uppercase">{ticket.customerName}</h4>
-                  {ticket.priority === Priority.PRIORITY && (
-                    <span className="text-[8px] bg-red-600 text-white px-2 py-0.5 rounded font-black">PRIO</span>
-                  )}
-                </div>
-                <div className="mb-3">
-                  <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">
-                    {ticket.password} • #{ticket.orderNumber}
-                  </p>
-                  <p className="text-[9px] font-black text-[#e67324] uppercase tracking-wider mt-1">
-                    <i className="fas fa-user-tag mr-1"></i> {ticket.clientType} • <i className="fas fa-truck mr-1"></i> {ticket.vehicleType}
-                  </p>
-                  {ticket.collectorName && (
-                    <div className="mt-2 bg-gray-100 text-gray-700 px-2 py-1 rounded-lg text-[9px] font-black uppercase flex items-center gap-1 w-max">
-                      <i className="fas fa-id-card"></i> COLETADOR: {ticket.collectorName}
+            {waiting.map(ticket => {
+              const arrivalMs = getArrivalMs(ticket.arrivalTime);
+              const waitMinutes = arrivalMs > 0 ? Math.floor((currentTime - arrivalMs) / 60000) : 0;
+              const isOverdue = waitMinutes >= alertThresholdMinutes;
+
+              return (
+                <div key={ticket.id} className={`bg-white border rounded-2xl p-4 transition-all group shadow-sm ${
+                  isOverdue ? 'border-red-400 bg-red-50/40 ring-1 ring-red-400' : 'border-gray-200 hover:border-[#e67324]'
+                }`}>
+                  <div className="flex justify-between items-center mb-1">
+                    <h4 className="font-black text-base text-gray-800 tracking-tighter uppercase">{ticket.customerName}</h4>
+                    <div className="flex items-center gap-1">
+                      {isOverdue && (
+                        <span className="text-[8px] bg-red-600 text-white px-2 py-0.5 rounded font-black animate-pulse">
+                          {waitMinutes}m ESPERANDO
+                        </span>
+                      )}
+                      {ticket.priority === Priority.PRIORITY && (
+                        <span className="text-[8px] bg-red-600 text-white px-2 py-0.5 rounded font-black">PRIO</span>
+                      )}
                     </div>
-                  )}
+                  </div>
+                  <div className="mb-3">
+                    <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">
+                      {ticket.password} • #{ticket.orderNumber}
+                    </p>
+                    <p className="text-[9px] font-black text-[#e67324] uppercase tracking-wider mt-1">
+                      <i className="fas fa-user-tag mr-1"></i> {ticket.clientType} • <i className="fas fa-truck mr-1"></i> {ticket.vehicleType}
+                    </p>
+                    {ticket.collectorName && (
+                      <div className="mt-2 bg-gray-100 text-gray-700 px-2 py-1 rounded-lg text-[9px] font-black uppercase flex items-center gap-1 w-max">
+                        <i className="fas fa-id-card"></i> COLETADOR: {ticket.collectorName}
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={() => onUpdateStatus(ticket.id, TicketStatus.IN_SEPARATION)} className="flex-1 border-2 border-[#1a1a1a] text-[#1a1a1a] group-hover:bg-[#1a1a1a] group-hover:text-white py-2 rounded-xl font-black transition-all uppercase text-[9px] tracking-widest">
+                      INICIAR SEPARAÇÃO
+                    </button>
+                    <button 
+                      onClick={() => openCancelModal(ticket)} 
+                      title="Cancelar fluxo por desistência"
+                      className="px-3 bg-gray-50 hover:bg-red-50 text-gray-400 hover:text-red-600 border border-gray-200 hover:border-red-200 rounded-xl transition-all flex items-center justify-center"
+                    >
+                      <i className="fas fa-ban text-xs"></i>
+                    </button>
+                  </div>
                 </div>
-                <div className="flex gap-2">
-                  <button onClick={() => onUpdateStatus(ticket.id, TicketStatus.IN_SEPARATION)} className="flex-1 border-2 border-[#1a1a1a] text-[#1a1a1a] group-hover:bg-[#1a1a1a] group-hover:text-white py-2 rounded-xl font-black transition-all uppercase text-[9px] tracking-widest">
-                    INICIAR SEPARAÇÃO
-                  </button>
-                  <button 
-                    onClick={() => openCancelModal(ticket)} 
-                    title="Cancelar fluxo por desistência"
-                    className="px-3 bg-gray-50 hover:bg-red-50 text-gray-400 hover:text-red-600 border border-gray-200 hover:border-red-200 rounded-xl transition-all flex items-center justify-center"
-                  >
-                    <i className="fas fa-ban text-xs"></i>
-                  </button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 

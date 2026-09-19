@@ -11,7 +11,7 @@ import PrismaModule from './components/PrismaModule';
 import WelcomeScreen from './components/WelcomeScreen';
 import LoginScreen from './components/LoginScreen';
 import DataService from './services/dataService';
-import { LOGO_URL } from './constants';
+import { LOGO_URL, BRAND_NAME } from './constants';
 
 interface LayoutProps {
   currentUser: User | null;
@@ -37,15 +37,17 @@ const Layout: React.FC<LayoutProps> = ({
       <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
         <div className="flex justify-between h-14 sm:h-20 items-center">
           <div className="flex items-center gap-3 sm:gap-6 cursor-pointer" onClick={() => setActiveModule(null)}>
-            <div className="bg-white p-1 rounded-lg flex items-center justify-center h-7 sm:h-8 shadow-inner border border-[#e67324]">
-              <img src={LOGO_URL} alt="Normatel Logo" className="h-full w-auto object-contain" />
+            <div className="bg-white p-1 rounded-xl flex items-center justify-center h-8 sm:h-10 shadow-inner border border-[#e67324]">
+              <img src={LOGO_URL} alt={BRAND_NAME} className="h-full w-auto object-contain rounded-lg" />
             </div>
             <div className="hidden sm:block border-l border-white/10 pl-4">
               <div className="flex items-center gap-2">
-                <h1 className="text-lg font-black tracking-tight leading-none uppercase">GESTOR</h1>
+                <h1 className="text-base sm:text-lg font-black tracking-tight leading-none uppercase">
+                  ATENDIMENTO <span className="text-[#e67324]">HOME CENTER</span>
+                </h1>
                 {isSyncing && <i className="fas fa-sync fa-spin text-[10px] text-[#e67324]"></i>}
               </div>
-              <p className="text-[10px] text-[#e67324] font-bold uppercase tracking-widest mt-1">Nuvem Ativa</p>
+              <p className="text-[9px] text-[#e67324] font-bold uppercase tracking-widest mt-1">Gestão de Atendimento</p>
             </div>
           </div>
           {/* Mobile switcher */}

@@ -11,6 +11,7 @@ import {
   doc, 
   setDoc,
   getDoc,
+  getDocs,
   Timestamp,
   orderBy,
   limit,
@@ -300,6 +301,43 @@ class DataService {
       callback(entries);
     }, (error) => {
       console.error("Erro na escuta em tempo real do PRISMA:", error);
+    });
+  }
+
+  /**
+   * Assina ou busca registros do módulo PRISMA por intervalo de datas (para relatórios do mês ou período customizado)
+   */
+  static subscribePrismaEntriesByDateRange(
+    startDate: string, 
+    endDate: string, 
+    callback: (entries: PrismaEntry[]) => void
+  ) {
+    // Se for o mesmo dia, usa query simples direta
+    if (startDate === endDate) {
+      return this.subscribePrismaEntries(startDate, callback);
+    }
+
+    const q = query(
+      collection(db, "prisma_entries"),
+      where("sessionDate", ">=", startDate),
+      where("sessionDate", "<=", endDate)
+    );
+
+    return onSnapshot(q, (snapshot) => {
+      const entries = snapshot.docs.map(document => {
+        const data = document.data();
+        return {
+          ...this.parseFirestoreData(data),
+          id: document.id
+        } as PrismaEntry;
+      }).sort((a, b) => {
+        const timeA = a.entryTime ? new Date(a.entryTime).getTime() : 0;
+        const timeB = b.entryTime ? new Date(b.entryTime).getTime() : 0;
+        return timeB - timeA; // Mais recente primeiro
+      });
+      callback(entries);
+    }, (error) => {
+      console.error("Erro na consulta de período do PRISMA:", error);
     });
   }
 

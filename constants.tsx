@@ -1,15 +1,17 @@
 import React from 'react';
+import logoAtendimento from './src/assets/images/atendimento_logo_1789781083625.jpg';
 
 export const COLORS = {
-  primary: '#e67324', // Laranja Normatel
+  primary: '#e67324', // Laranja Atendimento Home Center
   secondary: '#1a1a1a', // Preto/Grafite
   accent: '#f97316', 
   priority: '#dc2626', 
   bg: '#f8fafc',
 };
 
-// Logotipo oficial Normatel Home Center
-export const LOGO_URL = "https://raichu-uploads.s3.amazonaws.com/logo_normatel-home-center_EtGYv6.png"; 
+// Logotipo Atendimento Home Center (Laranja e Preto)
+export const LOGO_URL = logoAtendimento;
+export const BRAND_NAME = "ATENDIMENTO HOME CENTER"; 
 
 export const ICONS = {
   RECEPTION: <i className="fas fa-concierge-bell"></i>,
