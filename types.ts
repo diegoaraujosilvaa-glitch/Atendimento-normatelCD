@@ -23,7 +23,8 @@ export enum TicketStatus {
   IN_SEPARATION = 'Separação em andamento',
   READY = 'Pronto para atendimento',
   CALLED = 'Chamado para atendimento',
-  FINISHED = 'Atendimento finalizado'
+  FINISHED = 'Atendimento finalizado',
+  CANCELLED = 'Atendimento cancelado'
 }
 
 export interface Ticket {
@@ -41,6 +42,8 @@ export interface Ticket {
   separationEndTime?: Date;
   callTime?: Date;
   finishTime?: Date;
+  cancelTime?: Date;
+  cancelReason?: string;
 }
 
 export type UserRole = 'admin' | 'staff';

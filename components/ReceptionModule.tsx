@@ -1,6 +1,6 @@
 
-import React, { useState, useMemo } from 'react';
-import { Priority, ClientType, VehicleType, Ticket } from '../types';
+import React, { useState, useMemo, useEffect } from 'react';
+import { Priority, ClientType, VehicleType, Ticket, TicketStatus } from '../types';
 import { ICONS } from '../constants';
 
 interface ReceptionModuleProps {
@@ -9,14 +9,28 @@ interface ReceptionModuleProps {
 }
 
 const ReceptionModule: React.FC<ReceptionModuleProps> = ({ onAddTicket, tickets }) => {
-  const [formData, setFormData] = useState({
-    customerName: '',
-    collectorName: '',
-    priority: Priority.NORMAL,
-    clientType: ClientType.CLIENT,
-    vehicleType: VehicleType.PASSENGER,
-    orderNumber: '',
+  const [formData, setFormData] = useState(() => {
+    try {
+      const saved = sessionStorage.getItem('normatel_reception_draft');
+      if (saved) {
+        return JSON.parse(saved);
+      }
+    } catch (e) {}
+    return {
+      customerName: '',
+      collectorName: '',
+      priority: Priority.NORMAL,
+      clientType: ClientType.CLIENT,
+      vehicleType: VehicleType.PASSENGER,
+      orderNumber: '',
+    };
   });
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem('normatel_reception_draft', JSON.stringify(formData));
+    } catch (e) {}
+  }, [formData]);
 
   const [isLoading, setIsLoading] = useState(false);
 
@@ -42,14 +56,18 @@ const ReceptionModule: React.FC<ReceptionModuleProps> = ({ onAddTicket, tickets 
         vehicleType: formData.vehicleType,
         orderNumber: formData.orderNumber,
       });
-      setFormData({
+      const emptyForm = {
         customerName: '',
         collectorName: '',
         priority: Priority.NORMAL,
         clientType: ClientType.CLIENT,
         vehicleType: VehicleType.PASSENGER,
         orderNumber: '',
-      });
+      };
+      setFormData(emptyForm);
+      try {
+        sessionStorage.removeItem('normatel_reception_draft');
+      } catch (e) {}
     } finally {
       setIsLoading(false);
     }
@@ -138,30 +156,50 @@ const ReceptionModule: React.FC<ReceptionModuleProps> = ({ onAddTicket, tickets 
       <div className="space-y-6">
         <div className="bg-[#1a1a1a] p-8 rounded-2xl shadow-2xl text-white">
           <div className="flex justify-between items-start mb-6">
-            <p className="text-[#e67324] text-[10px] font-black uppercase tracking-widest">Ativos Agora</p>
+            <p className="text-[#e67324] text-[10px] font-black uppercase tracking-widest">Ativos Agora na Fila</p>
             <i className="fas fa-cloud text-white/10 text-3xl"></i>
           </div>
-          <p className="text-6xl font-black tracking-tighter">{tickets.length}</p>
-          <p className="text-xs text-gray-500 mt-2 font-bold uppercase tracking-widest">Total atendimentos</p>
+          <p className="text-6xl font-black tracking-tighter">
+            {tickets.filter(t => t.status !== TicketStatus.FINISHED && t.status !== TicketStatus.CANCELLED).length}
+          </p>
+          <div className="flex justify-between items-center text-xs text-gray-500 mt-2 font-bold uppercase tracking-widest">
+            <span>Aguardando ou em atendimento</span>
+            <span className="text-gray-400">Total dia: {tickets.length}</span>
+          </div>
         </div>
 
         <div className="bg-white p-8 rounded-2xl border border-gray-200 shadow-sm">
-          <h3 className="text-xs font-black uppercase tracking-widest text-gray-400 mb-6">Atendimentos Recente</h3>
+          <h3 className="text-xs font-black uppercase tracking-widest text-gray-400 mb-6">Atendimentos Recentes</h3>
           <div className="space-y-4">
-            {recentTickets.map(ticket => (
-              <div key={ticket.id} className="flex items-center justify-between border-b pb-4 last:border-0 last:pb-0">
-                <div>
-                  <p className="font-black text-gray-900 leading-none mb-1 uppercase text-xs">{ticket.customerName}</p>
-                  <p className="text-[10px] font-bold text-[#e67324]">
-                    {ticket.password} • #{ticket.orderNumber}
-                    {ticket.collectorName ? ` • COLETADOR: ${ticket.collectorName}` : ''}
-                  </p>
+            {recentTickets.map(ticket => {
+              const isCancelled = ticket.status === TicketStatus.CANCELLED;
+              const isFinished = ticket.status === TicketStatus.FINISHED;
+
+              return (
+                <div key={ticket.id} className="flex items-center justify-between border-b pb-4 last:border-0 last:pb-0">
+                  <div>
+                    <p className={`font-black leading-none mb-1 uppercase text-xs ${isCancelled ? 'text-red-700 line-through' : 'text-gray-900'}`}>
+                      {ticket.customerName}
+                    </p>
+                    <p className="text-[10px] font-bold text-[#e67324]">
+                      {ticket.password} • #{ticket.orderNumber}
+                      {ticket.collectorName ? ` • COLETADOR: ${ticket.collectorName}` : ''}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    {ticket.priority === Priority.PRIORITY && (
+                      <span className="bg-red-100 text-red-600 text-[9px] font-black px-1.5 py-0.5 rounded">PRIO</span>
+                    )}
+                    {isCancelled && (
+                      <span className="bg-red-100 text-red-700 text-[9px] font-black px-1.5 py-0.5 rounded uppercase">Cancelado</span>
+                    )}
+                    {isFinished && (
+                      <span className="bg-emerald-100 text-emerald-700 text-[9px] font-black px-1.5 py-0.5 rounded uppercase">Concluído</span>
+                    )}
+                  </div>
                 </div>
-                {ticket.priority === Priority.PRIORITY && (
-                  <span className="bg-red-100 text-red-600 text-[10px] font-black px-2 py-1 rounded">PRIO</span>
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </div>
