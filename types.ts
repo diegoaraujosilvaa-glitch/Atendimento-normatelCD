@@ -14,7 +14,8 @@ export enum VehicleType {
   PASSENGER = 'Veículo de Passeio',
   MOTORCYCLE = 'Motocicleta',
   PICKUP = 'Pickup',
-  TRUCK = 'Caminhão',
+  TRUCK_OPEN = 'Caminhão Aberto',
+  TRUCK_CLOSED = 'Caminhão Fechado',
   VAN = 'Van'
 }
 
@@ -34,7 +35,7 @@ export interface Ticket {
   collectorName?: string;
   priority: Priority;
   clientType: ClientType;
-  vehicleType: VehicleType;
+  vehicleType: VehicleType | string;
   orderNumber: string;
   arrivalTime: Date;
   status: TicketStatus;
@@ -65,6 +66,13 @@ export interface PrismaTargetConfig {
   freightTargetMinutes: number;
 }
 
+export interface PrismaOccurrenceType {
+  id: string;
+  name: string;
+  description?: string;
+  isDefault?: boolean;
+}
+
 export interface PrismaEntry {
   id: string;
   sessionDate: string;
@@ -77,7 +85,13 @@ export interface PrismaEntry {
   exitTime?: Date;
   durationMinutes?: number;
   status: 'IN_CD' | 'COMPLETED' | 'CANCELLED';
-  problemJustification?: string;
+  observation?: string; // Observação geral / portaria
+  problemJustification?: string; // Legado para retrocompatibilidade
+  isJustified?: boolean; // Se a ocorrência foi oficialmente justificada (isenta de SLA/tempo médio)
+  justificationType?: string; // Tipo de ocorrência padrão cadastrado
+  justificationReason?: string; // Detalhes da justificativa
+  justifiedBy?: string; // Usuário que realizou a justificativa
+  justifiedAt?: Date; // Data/hora da justificativa
   targetMinutes: number;
   withinTarget?: boolean;
   registeredBy?: string;

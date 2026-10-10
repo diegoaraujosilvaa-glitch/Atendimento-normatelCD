@@ -17,7 +17,20 @@ import {
   limit,
   runTransaction
 } from "firebase/firestore";
-import { Ticket, User, Priority, TicketStatus, PrismaEntry, PrismaTargetConfig } from '../types';
+import { Ticket, User, Priority, TicketStatus, PrismaEntry, PrismaTargetConfig, PrismaOccurrenceType } from '../types';
+
+export const DEFAULT_OCCURRENCE_TYPES: PrismaOccurrenceType[] = [
+  { id: '1', name: 'Demora na separação de itens no CD', isDefault: true },
+  { id: '2', name: 'Atraso no carregamento e estiva da carga', isDefault: true },
+  { id: '3', name: 'Divergência na conferência de mercadorias', isDefault: true },
+  { id: '4', name: 'Aguardando faturamento / emissão de NF', isDefault: true },
+  { id: '5', name: 'Liberação pendente do setor financeiro', isDefault: true },
+  { id: '6', name: 'Veículo com avaria mecânica no pátio', isDefault: true },
+  { id: '7', name: 'Fila nos boxes de expedição', isDefault: true },
+  { id: '8', name: 'Cliente solicitou alteração no pedido', isDefault: true },
+  { id: '9', name: 'Falha sistêmica / queda de rede', isDefault: true },
+  { id: '10', name: 'Outro motivo operacional', isDefault: true },
+];
 
 /**
  * DataService - Camada de Abstração de Dados via Firebase Firestore (Tempo Real)
@@ -35,19 +48,28 @@ class DataService {
     return parsed;
   }
 
-  // Helper para limpar campos undefined antes de enviar ao Firestore (evita erros do SDK)
-  private static cleanFirestorePayload(data: Record<string, any>): Record<string, any> {
-    const clean: Record<string, any> = {};
-    for (const key of Object.keys(data)) {
-      const val = data[key];
-      if (val === undefined) continue;
-      if (val instanceof Date) {
-        clean[key] = Timestamp.fromDate(val);
-      } else {
-        clean[key] = val;
-      }
+  // Helper para limpar campos undefined antes de enviar ao Firestore (evita erros do SDK de forma recursiva)
+  private static cleanFirestorePayload(val: any): any {
+    if (val === undefined) return undefined;
+    if (val === null) return null;
+    if (val instanceof Date) return Timestamp.fromDate(val);
+    if (val instanceof Timestamp) return val;
+    if (Array.isArray(val)) {
+      return val
+        .map(item => this.cleanFirestorePayload(item))
+        .filter(item => item !== undefined);
     }
-    return clean;
+    if (typeof val === 'object') {
+      const clean: Record<string, any> = {};
+      for (const key of Object.keys(val)) {
+        const cleanedValue = this.cleanFirestorePayload(val[key]);
+        if (cleanedValue !== undefined) {
+          clean[key] = cleanedValue;
+        }
+      }
+      return clean;
+    }
+    return val;
   }
 
   /**
@@ -384,11 +406,17 @@ class DataService {
   }
 
   /**
-   * Finaliza a saída do veículo pelo portão do CD
+   * Finaliza a saída do veículo pelo portão do CD com suporte completo a justificativa e observação
    */
   static async completePrismaExit(
     entry: PrismaEntry, 
-    problemJustification?: string
+    exitDetails?: {
+      observation?: string;
+      isJustified?: boolean;
+      justificationType?: string;
+      justificationReason?: string;
+      justifiedBy?: string;
+    } | string
   ): Promise<void> {
     try {
       const exitDate = new Date();
@@ -403,8 +431,29 @@ class DataService {
         withinTarget
       };
 
-      if (problemJustification && problemJustification.trim()) {
-        rawPayload.problemJustification = problemJustification.trim();
+      if (typeof exitDetails === 'string') {
+        if (exitDetails.trim()) {
+          rawPayload.problemJustification = exitDetails.trim();
+          rawPayload.observation = exitDetails.trim();
+        }
+      } else if (exitDetails) {
+        if (exitDetails.observation !== undefined) {
+          rawPayload.observation = exitDetails.observation.trim();
+        }
+        if (exitDetails.isJustified) {
+          rawPayload.isJustified = true;
+          rawPayload.justificationType = (exitDetails.justificationType || '').trim();
+          rawPayload.justificationReason = (exitDetails.justificationReason || '').trim();
+          rawPayload.justifiedBy = (exitDetails.justifiedBy || '').trim();
+          rawPayload.justifiedAt = Timestamp.now();
+          // Compatibilidade
+          rawPayload.problemJustification = exitDetails.justificationReason || exitDetails.justificationType || '';
+        } else {
+          rawPayload.isJustified = false;
+          rawPayload.justificationType = '';
+          rawPayload.justificationReason = '';
+          rawPayload.justifiedBy = '';
+        }
       }
 
       const payload = this.cleanFirestorePayload(rawPayload);
@@ -468,6 +517,61 @@ class DataService {
       }, { merge: true });
     } catch (e) {
       console.error("Erro ao salvar metas do PRISMA:", e);
+      throw e;
+    }
+  }
+
+  /**
+   * Escuta a lista de tipos de ocorrência cadastrados do PRISMA
+   */
+  static subscribePrismaOccurrenceTypes(callback: (types: PrismaOccurrenceType[]) => void) {
+    const docRef = doc(db, "system_settings", "prisma_occurrence_types");
+    return onSnapshot(docRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.data();
+        if (Array.isArray(data.types) && data.types.length > 0) {
+          callback(data.types);
+          return;
+        }
+      }
+      // Padrões se ainda não cadastrado no Firestore
+      callback(DEFAULT_OCCURRENCE_TYPES);
+    }, (err) => {
+      console.warn("Erro ao buscar tipos de ocorrência PRISMA, usando padrão:", err);
+      callback(DEFAULT_OCCURRENCE_TYPES);
+    });
+  }
+
+  /**
+   * Salva a lista de tipos de ocorrência do PRISMA
+   */
+  static async savePrismaOccurrenceTypes(types: PrismaOccurrenceType[]): Promise<void> {
+    try {
+      const docRef = doc(db, "system_settings", "prisma_occurrence_types");
+      const cleanTypes = types
+        .map((t, idx) => {
+          const item: Record<string, any> = {
+            id: String(t.id || `occ_${Date.now()}_${idx}`),
+            name: String(t.name || '').trim()
+          };
+          if (t.description && t.description.trim()) {
+            item.description = t.description.trim();
+          }
+          if (t.isDefault !== undefined) {
+            item.isDefault = Boolean(t.isDefault);
+          }
+          return item;
+        })
+        .filter(item => item.name.length > 0);
+
+      const payload = this.cleanFirestorePayload({
+        types: cleanTypes,
+        updatedAt: Timestamp.now()
+      });
+
+      await setDoc(docRef, payload, { merge: true });
+    } catch (e) {
+      console.error("Erro ao salvar tipos de ocorrência PRISMA:", e);
       throw e;
     }
   }

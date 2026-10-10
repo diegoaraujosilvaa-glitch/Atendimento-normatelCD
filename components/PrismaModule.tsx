@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { PrismaEntry, PrismaClientType, PrismaTargetConfig, User, Ticket } from '../types';
-import DataService from '../services/dataService';
+import { PrismaEntry, PrismaClientType, PrismaTargetConfig, PrismaOccurrenceType, User, Ticket } from '../types';
+import DataService, { DEFAULT_OCCURRENCE_TYPES } from '../services/dataService';
 
 interface PrismaModuleProps {
   sessionDate: string;
@@ -12,21 +12,12 @@ const VEHICLE_TYPES = [
   { label: 'Veículo de Passeio', icon: 'fa-car' },
   { label: 'Pickup / Fiorino', icon: 'fa-truck-pickup' },
   { label: 'Van / Utilitário', icon: 'fa-van-shuttle' },
+  { label: 'Caminhão Aberto', icon: 'fa-truck' },
+  { label: 'Caminhão Fechado', icon: 'fa-truck-ramp-box' },
   { label: 'Caminhão Toco (3/4)', icon: 'fa-truck' },
   { label: 'Caminhão Truck', icon: 'fa-truck-moving' },
   { label: 'Carreta / Bitrem', icon: 'fa-trailer' },
   { label: 'Motocicleta', icon: 'fa-motorcycle' },
-];
-
-const PROBLEM_SUGGESTIONS = [
-  'Demora na separação de itens no CD',
-  'Atraso no carregamento e estiva da carga',
-  'Divergência na conferência da mercadoria',
-  'Aguardando faturamento / emissão de NF',
-  'Liberação pendente do setor financeiro',
-  'Veículo com avaria mecânica no pátio',
-  'Fila nos boxes de expedição',
-  'Outro motivo'
 ];
 
 const PrismaModule: React.FC<PrismaModuleProps> = ({ sessionDate, currentUser, tickets = [] }) => {
@@ -35,6 +26,14 @@ const PrismaModule: React.FC<PrismaModuleProps> = ({ sessionDate, currentUser, t
     clientTargetMinutes: 45,
     freightTargetMinutes: 90
   });
+
+  // Cadastro de Tipos de Ocorrência Padrão
+  const [occurrenceTypes, setOccurrenceTypes] = useState<PrismaOccurrenceType[]>(DEFAULT_OCCURRENCE_TYPES);
+  const [isOccurrenceModalOpen, setIsOccurrenceModalOpen] = useState(false);
+  const [newOccurrenceName, setNewOccurrenceName] = useState('');
+  const [newOccurrenceDesc, setNewOccurrenceDesc] = useState('');
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [occurrenceMessage, setOccurrenceMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
   // Formulário de Entrada
   const [clientType, setClientType] = useState<PrismaClientType>('CLIENTE');
@@ -45,14 +44,26 @@ const PrismaModule: React.FC<PrismaModuleProps> = ({ sessionDate, currentUser, t
   const [initialObservation, setInitialObservation] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Modais
+  // Modais de Metas e Saída
   const [isTargetModalOpen, setIsTargetModalOpen] = useState(false);
   const [tempClientTarget, setTempClientTarget] = useState(45);
   const [tempFreightTarget, setTempFreightTarget] = useState(90);
 
+  // Modal de Finalizar Saída
   const [completingEntry, setCompletingEntry] = useState<PrismaEntry | null>(null);
-  const [exitJustification, setExitJustification] = useState('');
-  const [customJustification, setCustomJustification] = useState('');
+  const [exitIsJustified, setExitIsJustified] = useState(false);
+  const [exitJustificationType, setExitJustificationType] = useState('');
+  const [exitJustificationReason, setExitJustificationReason] = useState('');
+  const [exitObservation, setExitObservation] = useState('');
+
+  // Modal de Edição / Justificativa Retroativa de Ocorrência
+  const [editingEntry, setEditingEntry] = useState<PrismaEntry | null>(null);
+  const [editIsJustified, setEditIsJustified] = useState(false);
+  const [editJustificationType, setEditJustificationType] = useState('');
+  const [editJustificationReason, setEditJustificationReason] = useState('');
+  const [editObservation, setEditObservation] = useState('');
+  const [editDriverName, setEditDriverName] = useState('');
+  const [editOrderNumber, setEditOrderNumber] = useState('');
 
   // Filtros da tabela e intervalo de datas para relatórios
   const [dateFilterMode, setDateFilterMode] = useState<'DAY' | 'RANGE'>('DAY');
@@ -60,7 +71,7 @@ const PrismaModule: React.FC<PrismaModuleProps> = ({ sessionDate, currentUser, t
   const [endDate, setEndDate] = useState(sessionDate || new Date().toISOString().split('T')[0]);
   const [isLoadingRange, setIsLoadingRange] = useState(false);
 
-  const [activeTab, setActiveTab] = useState<'IN_CD' | 'COMPLETED' | 'BREACHED' | 'ALL'>('IN_CD');
+  const [activeTab, setActiveTab] = useState<'IN_CD' | 'COMPLETED' | 'BREACHED' | 'JUSTIFIED' | 'ALL'>('IN_CD');
   const [searchQuery, setSearchQuery] = useState('');
 
   // Contador de tempo vivo (atualiza a cada 30 segundos para o pátio)
@@ -121,6 +132,14 @@ const PrismaModule: React.FC<PrismaModuleProps> = ({ sessionDate, currentUser, t
     }
   };
 
+  // Escuta tipos de ocorrência cadastrados
+  useEffect(() => {
+    const unsub = DataService.subscribePrismaOccurrenceTypes((types) => {
+      setOccurrenceTypes(types);
+    });
+    return () => unsub();
+  }, []);
+
   // Escuta configuração de metas
   useEffect(() => {
     const unsub = DataService.subscribePrismaTargets((cfg) => {
@@ -178,6 +197,7 @@ const PrismaModule: React.FC<PrismaModuleProps> = ({ sessionDate, currentUser, t
         vehicleType,
         driverName: driverName.trim() || undefined,
         targetMinutes: target,
+        observation: initialObservation.trim() || undefined,
         problemJustification: initialObservation.trim() || undefined,
         registeredBy: currentUser?.name || 'Portaria'
       });
@@ -196,27 +216,142 @@ const PrismaModule: React.FC<PrismaModuleProps> = ({ sessionDate, currentUser, t
 
   // Abrir modal para finalizar saída
   const openExitModal = (entry: PrismaEntry) => {
+    const elapsed = getElapsedMinutes(entry.entryTime);
+    const isBreached = elapsed > entry.targetMinutes;
     setCompletingEntry(entry);
-    setExitJustification('');
-    setCustomJustification('');
+    setExitIsJustified(isBreached); // Sugere justificar se estourou a meta
+    setExitJustificationType(occurrenceTypes[0]?.name || 'Demora na separação de itens no CD');
+    setExitJustificationReason('');
+    setExitObservation(entry.observation || entry.problemJustification || '');
   };
 
   // Confirmar saída
   const handleConfirmExit = async () => {
     if (!completingEntry) return;
 
-    let finalJustification = exitJustification;
-    if (exitJustification === 'Outro motivo') {
-      finalJustification = customJustification.trim() || 'Desvio registrado pela portaria';
-    } else if (customJustification.trim()) {
-      finalJustification = finalJustification ? `${finalJustification} - ${customJustification.trim()}` : customJustification.trim();
-    }
-
     try {
-      await DataService.completePrismaExit(completingEntry, finalJustification);
+      await DataService.completePrismaExit(completingEntry, {
+        observation: exitObservation.trim(),
+        isJustified: exitIsJustified,
+        justificationType: exitIsJustified ? exitJustificationType : '',
+        justificationReason: exitIsJustified ? exitJustificationReason.trim() : '',
+        justifiedBy: exitIsJustified ? (currentUser?.name || 'Portaria') : ''
+      });
       setCompletingEntry(null);
     } catch (err) {
       alert("Erro ao registrar saída.");
+    }
+  };
+
+  // Abrir modal de edição / justificativa retroativa
+  const openEditModal = (entry: PrismaEntry) => {
+    setEditingEntry(entry);
+    const isAlreadyJustified = Boolean(entry.isJustified || (entry.justificationType && entry.isJustified !== false));
+    setEditIsJustified(isAlreadyJustified);
+    setEditJustificationType(entry.justificationType || occurrenceTypes[0]?.name || 'Demora na separação de itens no CD');
+    setEditJustificationReason(entry.justificationReason || entry.problemJustification || '');
+    setEditObservation(entry.observation || (!entry.isJustified ? entry.problemJustification || '' : ''));
+    setEditDriverName(entry.driverName || '');
+    setEditOrderNumber(entry.orderNumber || '');
+  };
+
+  // Salvar edição da saída / ocorrência
+  const handleSaveEdit = async () => {
+    if (!editingEntry) return;
+
+    try {
+      const updated: PrismaEntry = {
+        ...editingEntry,
+        driverName: editDriverName.trim() || undefined,
+        orderNumber: editOrderNumber.trim() || editingEntry.orderNumber,
+        observation: editObservation.trim() || undefined,
+        isJustified: editIsJustified,
+        justificationType: editIsJustified ? editJustificationType : '',
+        justificationReason: editIsJustified ? editJustificationReason.trim() : '',
+        justifiedBy: editIsJustified ? (editingEntry.justifiedBy || currentUser?.name || 'Gestão') : '',
+        justifiedAt: editIsJustified ? (editingEntry.justifiedAt || new Date()) : undefined,
+        problemJustification: editIsJustified ? (editJustificationReason || editJustificationType) : (editObservation || '')
+      };
+
+      await DataService.updatePrismaEntry(updated);
+      setEditingEntry(null);
+    } catch (err) {
+      alert("Erro ao salvar alterações da saída.");
+    }
+  };
+
+  // Ações de Cadastro de Tipos de Ocorrência
+  const handleAddOccurrenceType = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newOccurrenceName.trim()) return;
+
+    const newType: PrismaOccurrenceType = {
+      id: `occ_${Date.now()}`,
+      name: newOccurrenceName.trim(),
+      ...(newOccurrenceDesc.trim() ? { description: newOccurrenceDesc.trim() } : {}),
+      isDefault: false
+    };
+
+    try {
+      const updated = [...occurrenceTypes, newType];
+      setOccurrenceTypes(updated);
+      setNewOccurrenceName('');
+      setNewOccurrenceDesc('');
+      await DataService.savePrismaOccurrenceTypes(updated);
+      setOccurrenceMessage({ text: "Tipo de ocorrência adicionado com sucesso!", type: 'success' });
+      setTimeout(() => setOccurrenceMessage(null), 3000);
+    } catch (err) {
+      console.error("Erro ao adicionar tipo de ocorrência:", err);
+      setOccurrenceMessage({ text: "Erro ao cadastrar tipo no banco.", type: 'error' });
+    }
+  };
+
+  const handleDeleteOccurrenceType = async (typeOrId: PrismaOccurrenceType | string, index?: number) => {
+    if (occurrenceTypes.length <= 1) {
+      setOccurrenceMessage({ text: "Mantenha ao menos um tipo de ocorrência cadastrado.", type: 'error' });
+      return;
+    }
+
+    const targetId = typeof typeOrId === 'string' ? typeOrId : typeOrId?.id;
+    const targetObj = typeof typeOrId === 'object' ? typeOrId : occurrenceTypes.find(t => t.id === typeOrId);
+    const targetName = targetObj?.name || (typeof typeOrId === 'string' ? typeOrId : 'selecionado');
+
+    try {
+      let updated = occurrenceTypes.filter((t, idx) => {
+        if (targetId && t.id) {
+          return t.id !== targetId;
+        }
+        if (typeof index === 'number') {
+          return idx !== index;
+        }
+        return t.name !== targetName;
+      });
+
+      // Se o filtro não removeu nada mas o índice foi especificado
+      if (updated.length === occurrenceTypes.length && typeof index === 'number' && index >= 0) {
+        updated = occurrenceTypes.filter((_, idx) => idx !== index);
+      }
+
+      setOccurrenceTypes(updated);
+      setDeleteConfirmId(null);
+      await DataService.savePrismaOccurrenceTypes(updated);
+      setOccurrenceMessage({ text: `Tipo "${targetName}" excluído com sucesso!`, type: 'success' });
+      setTimeout(() => setOccurrenceMessage(null), 3500);
+    } catch (err) {
+      console.error("Erro ao remover tipo de ocorrência:", err);
+      setOccurrenceMessage({ text: "Erro ao excluir tipo no banco.", type: 'error' });
+    }
+  };
+
+  const handleRestoreDefaultOccurrenceTypes = async () => {
+    try {
+      setOccurrenceTypes(DEFAULT_OCCURRENCE_TYPES);
+      await DataService.savePrismaOccurrenceTypes(DEFAULT_OCCURRENCE_TYPES);
+      setOccurrenceMessage({ text: "Lista padrão restaurada com sucesso!", type: 'success' });
+      setTimeout(() => setOccurrenceMessage(null), 3000);
+    } catch (err) {
+      console.error("Erro ao restaurar padrões:", err);
+      setOccurrenceMessage({ text: "Erro ao restaurar lista padrão.", type: 'error' });
     }
   };
 
@@ -233,54 +368,72 @@ const PrismaModule: React.FC<PrismaModuleProps> = ({ sessionDate, currentUser, t
     setIsTargetModalOpen(false);
   };
 
-  // Cálculos Estatísticos
+  // Cálculos Estatísticos:
+  // REGRA DE NEGÓCIO: Saídas justificadas são DESCONSIDERADAS do tempo médio e do SLA,
+  // mas PERMANECEM contabilizadas no total de saídas concluídas!
   const stats = useMemo(() => {
     const total = entries.length;
     const activeInCd = entries.filter(e => e.status === 'IN_CD');
     const completed = entries.filter(e => e.status === 'COMPLETED');
 
-    const completedClients = completed.filter(e => e.clientType === 'CLIENTE');
-    const completedFreight = completed.filter(e => e.clientType === 'FRETE');
+    // Uma saída é justificada se foi marcada como isJustified
+    const isEntryJustified = (e: PrismaEntry) => Boolean(e.isJustified || (e.justificationType && e.isJustified !== false));
 
-    // Tempo médio geral dos concluídos
-    const totalDuration = completed.reduce((acc, e) => acc + (e.durationMinutes || 0), 0);
-    const avgDurationGeneral = completed.length > 0 ? Math.round(totalDuration / completed.length) : 0;
+    const justifiedExits = completed.filter(isEntryJustified);
+    const validExits = completed.filter(e => !isEntryJustified(e));
 
-    // Tempo médio Clientes
-    const clientDuration = completedClients.reduce((acc, e) => acc + (e.durationMinutes || 0), 0);
-    const avgDurationClient = completedClients.length > 0 ? Math.round(clientDuration / completedClients.length) : 0;
+    const validClients = validExits.filter(e => e.clientType === 'CLIENTE');
+    const validFreight = validExits.filter(e => e.clientType === 'FRETE');
 
-    // Tempo médio Frete
-    const freightDuration = completedFreight.reduce((acc, e) => acc + (e.durationMinutes || 0), 0);
-    const avgDurationFreight = completedFreight.length > 0 ? Math.round(freightDuration / completedFreight.length) : 0;
+    // Total de saídas concluídas: MANTÉM contabilizadas todas as saídas (inclusive justificadas)
+    const completedCount = completed.length;
+    const justifiedCount = justifiedExits.length;
+    const validCount = validExits.length;
 
-    // Percentual atendido dentro do prazo (SLA)
-    const withinTargetCount = completed.filter(e => e.withinTarget).length;
-    const slaPercentGeneral = completed.length > 0 ? Math.round((withinTargetCount / completed.length) * 100) : 100;
+    // Tempo médio geral: DESCONSIDERA saídas justificadas
+    const totalDurationValid = validExits.reduce((acc, e) => acc + (e.durationMinutes || 0), 0);
+    const avgDurationGeneral = validCount > 0 ? Math.round(totalDurationValid / validCount) : 0;
 
-    // SLA Cliente
-    const clientWithinTarget = completedClients.filter(e => e.withinTarget).length;
-    const slaPercentClient = completedClients.length > 0 ? Math.round((clientWithinTarget / completedClients.length) * 100) : 100;
+    // Tempo médio Clientes: DESCONSIDERA saídas justificadas
+    const clientDurationValid = validClients.reduce((acc, e) => acc + (e.durationMinutes || 0), 0);
+    const avgDurationClient = validClients.length > 0 ? Math.round(clientDurationValid / validClients.length) : 0;
 
-    // SLA Frete
-    const freightWithinTarget = completedFreight.filter(e => e.withinTarget).length;
-    const slaPercentFreight = completedFreight.length > 0 ? Math.round((freightWithinTarget / completedFreight.length) * 100) : 100;
+    // Tempo médio Frete: DESCONSIDERA saídas justificadas
+    const freightDurationValid = validFreight.reduce((acc, e) => acc + (e.durationMinutes || 0), 0);
+    const avgDurationFreight = validFreight.length > 0 ? Math.round(freightDurationValid / validFreight.length) : 0;
 
-    // Quantidade fora da meta
-    const breachedCount = completed.filter(e => !e.withinTarget).length;
+    // SLA Geral (% Dentro da Meta): DESCONSIDERA saídas justificadas
+    const withinTargetValidCount = validExits.filter(e => e.withinTarget).length;
+    const slaPercentGeneral = validCount > 0 ? Math.round((withinTargetValidCount / validCount) * 100) : 100;
+
+    // SLA Cliente: DESCONSIDERA saídas justificadas
+    const clientWithinTargetValid = validClients.filter(e => e.withinTarget).length;
+    const slaPercentClient = validClients.length > 0 ? Math.round((clientWithinTargetValid / validClients.length) * 100) : 100;
+
+    // SLA Frete: DESCONSIDERA saídas justificadas
+    const freightWithinTargetValid = validFreight.filter(e => e.withinTarget).length;
+    const slaPercentFreight = validFreight.length > 0 ? Math.round((freightWithinTargetValid / validFreight.length) * 100) : 100;
+
+    // Quantidade total fora da meta
+    const totalBreached = completed.filter(e => !e.withinTarget).length;
+    // Quantidade fora da meta que ainda não foi justificada (impactando SLA negativamente)
+    const breachedUnjustifiedCount = validExits.filter(e => !e.withinTarget).length;
 
     return {
       total,
       activeInCdCount: activeInCd.length,
-      completedCount: completed.length,
+      completedCount,
+      justifiedCount,
+      validCount,
       avgDurationGeneral,
       avgDurationClient,
       avgDurationFreight,
       slaPercentGeneral,
       slaPercentClient,
       slaPercentFreight,
-      withinTargetCount,
-      breachedCount,
+      withinTargetValidCount,
+      totalBreached,
+      breachedUnjustifiedCount,
       activeClients: activeInCd.filter(e => e.clientType === 'CLIENTE').length,
       activeFreight: activeInCd.filter(e => e.clientType === 'FRETE').length,
     };
@@ -304,20 +457,28 @@ const PrismaModule: React.FC<PrismaModuleProps> = ({ sessionDate, currentUser, t
           if (elapsed <= e.targetMinutes) return false;
         }
       }
+      if (activeTab === 'JUSTIFIED') {
+        const isJustified = Boolean(e.isJustified || (e.justificationType && e.isJustified !== false));
+        if (!isJustified) return false;
+      }
 
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
         const matchPlate = e.plate.toLowerCase().includes(q);
         const matchOrder = e.orderNumber.toLowerCase().includes(q);
         const matchDriver = e.driverName?.toLowerCase().includes(q);
-        if (!matchPlate && !matchOrder && !matchDriver) return false;
+        const matchObs = (e.observation || '').toLowerCase().includes(q);
+        const matchJustType = (e.justificationType || '').toLowerCase().includes(q);
+        const matchJustReason = (e.justificationReason || '').toLowerCase().includes(q);
+        const matchLegacy = (e.problemJustification || '').toLowerCase().includes(q);
+        if (!matchPlate && !matchOrder && !matchDriver && !matchObs && !matchJustType && !matchJustReason && !matchLegacy) return false;
       }
 
       return true;
     });
   }, [entries, activeTab, searchQuery, currentTime]);
 
-  // Exportar CSV do PRISMA
+  // Exportar CSV do PRISMA (Auditoria completa com Observação e Ocorrências)
   const exportPrismaCSV = () => {
     if (entries.length === 0) {
       alert("Nenhum dado para exportar.");
@@ -330,14 +491,19 @@ const PrismaModule: React.FC<PrismaModuleProps> = ({ sessionDate, currentUser, t
       "Pedido",
       "Tipo Atendimento",
       "Tipo Veiculo",
-      "Motorista/Obs",
+      "Motorista",
       "Hora Entrada",
       "Hora Saida",
       "Tempo Permanencia (min)",
       "Meta Estipulada (min)",
       "Dentro da Meta?",
       "Status",
-      "Justificativa/Problema",
+      "Observacao",
+      "Saida Justificada?",
+      "Tipo de Ocorrencia",
+      "Motivo da Justificativa",
+      "Desconsiderada do SLA e Tempo Medio?",
+      "Justificado Por",
       "Operador Portaria"
     ];
 
@@ -346,6 +512,8 @@ const PrismaModule: React.FC<PrismaModuleProps> = ({ sessionDate, currentUser, t
       const exitFormatted = e.exitTime ? new Date(e.exitTime).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : "No Pátio";
       const duration = e.durationMinutes ?? getElapsedMinutes(e.entryTime);
       const isWithin = e.status === 'COMPLETED' ? (e.withinTarget ? 'SIM' : 'NÃO') : (duration <= e.targetMinutes ? 'NO PRAZO' : 'EXCEDIDO');
+      const isJustifiedStr = (e.isJustified || e.justificationType) ? 'SIM' : 'NÃO';
+      const obs = (e.observation || (!e.isJustified ? e.problemJustification : '') || '').replace(/"/g, '""');
 
       return [
         `"${e.sessionDate}"`,
@@ -360,7 +528,12 @@ const PrismaModule: React.FC<PrismaModuleProps> = ({ sessionDate, currentUser, t
         `"${e.targetMinutes}"`,
         `"${isWithin}"`,
         `"${e.status === 'IN_CD' ? 'No Pátio' : 'Finalizado'}"`,
-        `"${(e.problemJustification || '').replace(/"/g, '""')}"`,
+        `"${obs}"`,
+        `"${isJustifiedStr}"`,
+        `"${(e.justificationType || '').replace(/"/g, '""')}"`,
+        `"${(e.justificationReason || '').replace(/"/g, '""')}"`,
+        `"${isJustifiedStr === 'SIM' ? 'SIM (DESCONSIDERADA)' : 'NÃO (CONTABILIZADA NO SLA)'}"`,
+        `"${(e.justifiedBy || '').replace(/"/g, '""')}"`,
         `"${e.registeredBy || 'Portaria'}"`
       ].join(";");
     });
@@ -397,6 +570,21 @@ const PrismaModule: React.FC<PrismaModuleProps> = ({ sessionDate, currentUser, t
 
         {/* Ações da Portaria */}
         <div className="flex items-center gap-2 shrink-0">
+          {/* Botão Cadastro de Tipos de Ocorrência */}
+          <button
+            id="btn-prisma-occurrence-types"
+            onClick={() => setIsOccurrenceModalOpen(true)}
+            className="h-9 sm:h-10 px-2.5 sm:px-3.5 bg-gray-100 hover:bg-gray-200 active:scale-95 text-gray-800 font-black text-xs rounded-xl transition-all flex items-center gap-2 uppercase tracking-wider border border-gray-300 shadow-xs group"
+            title="Cadastrar tipos de ocorrência e justificativas padrão"
+            aria-label="Cadastrar Tipos de Ocorrência"
+          >
+            <i className="fas fa-clipboard-list text-sm sm:text-base text-[#e67324]"></i>
+            <span className="hidden sm:inline">Tipos de Ocorrência</span>
+            <span className="text-[9px] font-bold bg-orange-100 text-[#e67324] px-1.5 py-0.5 rounded">
+              {occurrenceTypes.length}
+            </span>
+          </button>
+
           {/* Botão Catraca de Configuração (Metas de SLA) */}
           <button
             id="btn-prisma-settings"
@@ -551,13 +739,17 @@ const PrismaModule: React.FC<PrismaModuleProps> = ({ sessionDate, currentUser, t
           </div>
         </div>
 
-        {/* Card 2: Saídas Finalizadas */}
+        {/* Card 2: Saídas Finalizadas (Total com indicativo de justificadas) */}
         <div className="bg-white border border-gray-200 p-3.5 sm:p-5 md:p-6 rounded-2xl flex justify-between items-center shadow-sm border-b-4 border-emerald-500">
           <div className="min-w-0">
             <p className="text-[9px] sm:text-[10px] font-black uppercase text-emerald-600 truncate">Saídas Concluídas</p>
             <p className="text-2xl sm:text-3xl font-black tracking-tight text-gray-900 mt-0.5">{stats.completedCount}</p>
             <p className="text-[9px] sm:text-[10px] text-gray-400 font-bold uppercase mt-1 truncate">
-              Total hoje: {stats.total}
+              {stats.justifiedCount > 0 ? (
+                <span className="text-purple-600 font-black">{stats.justifiedCount} justificadas • {stats.validCount} válidas</span>
+              ) : (
+                <span>Total no período: {stats.total}</span>
+              )}
             </p>
           </div>
           <div className="w-9 h-9 sm:w-12 sm:h-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center text-lg sm:text-2xl shrink-0 ml-2">
@@ -565,10 +757,17 @@ const PrismaModule: React.FC<PrismaModuleProps> = ({ sessionDate, currentUser, t
           </div>
         </div>
 
-        {/* Card 3: Tempo Médio de Permanência */}
+        {/* Card 3: Tempo Médio de Permanência (DESCONSIDERA saídas justificadas) */}
         <div className="bg-white border border-gray-200 p-3.5 sm:p-5 md:p-6 rounded-2xl flex justify-between items-center shadow-sm border-b-4 border-amber-500">
           <div className="min-w-0">
-            <p className="text-[9px] sm:text-[10px] font-black uppercase text-gray-500 truncate">Média Permanência</p>
+            <div className="flex items-center gap-1.5">
+              <p className="text-[9px] sm:text-[10px] font-black uppercase text-gray-500 truncate">Média Permanência</p>
+              {stats.justifiedCount > 0 && (
+                <span className="text-[8px] font-black bg-purple-100 text-purple-700 px-1 py-0.2 rounded" title="Saídas com ocorrências justificadas foram excluídas deste cálculo">
+                  Isenta {stats.justifiedCount}
+                </span>
+              )}
+            </div>
             <div className="flex items-baseline gap-1 mt-0.5">
               <p className="text-2xl sm:text-3xl font-black text-[#e67324] tracking-tight">{stats.avgDurationGeneral}m</p>
             </div>
@@ -582,19 +781,26 @@ const PrismaModule: React.FC<PrismaModuleProps> = ({ sessionDate, currentUser, t
           </div>
         </div>
 
-        {/* Card 4: Percentual Atendido Dentro do Prazo (% SLA) */}
+        {/* Card 4: Percentual Atendido Dentro do Prazo (% SLA - DESCONSIDERA saídas justificadas) */}
         <div className={`bg-white border border-gray-200 p-3.5 sm:p-5 md:p-6 rounded-2xl flex justify-between items-center shadow-sm border-b-4 ${
           stats.slaPercentGeneral >= 85 ? 'border-emerald-500' : stats.slaPercentGeneral >= 70 ? 'border-amber-500' : 'border-red-500'
         }`}>
           <div className="min-w-0">
-            <p className="text-[9px] sm:text-[10px] font-black uppercase text-gray-500 truncate">Dentro do SLA</p>
+            <div className="flex items-center gap-1.5">
+              <p className="text-[9px] sm:text-[10px] font-black uppercase text-gray-500 truncate">Dentro do SLA</p>
+              {stats.justifiedCount > 0 && (
+                <span className="text-[8px] font-black bg-purple-100 text-purple-700 px-1 py-0.2 rounded" title="Saídas justificadas não penalizam o SLA">
+                  -{stats.justifiedCount} just.
+                </span>
+              )}
+            </div>
             <div className="flex items-baseline gap-1.5 mt-0.5">
               <p className={`text-2xl sm:text-3xl font-black tracking-tight ${
                 stats.slaPercentGeneral >= 85 ? 'text-emerald-600' : stats.slaPercentGeneral >= 70 ? 'text-amber-600' : 'text-red-600'
               }`}>
                 {stats.slaPercentGeneral}%
               </p>
-              <span className="text-[9px] font-bold text-gray-400">({stats.withinTargetCount})</span>
+              <span className="text-[9px] font-bold text-gray-400">({stats.withinTargetValidCount}/{stats.validCount})</span>
             </div>
             <div className="flex items-center gap-1 text-[8px] sm:text-[9px] font-bold uppercase mt-1 truncate">
               <span className="text-blue-600">C:{stats.slaPercentClient}%</span>
@@ -963,7 +1169,7 @@ const PrismaModule: React.FC<PrismaModuleProps> = ({ sessionDate, currentUser, t
             </div>
 
             {/* Abas de Status */}
-            <div className="flex bg-gray-200/80 p-1 rounded-xl text-[10px] font-bold">
+            <div className="flex flex-wrap bg-gray-200/80 p-1 rounded-xl text-[10px] font-bold gap-1">
               <button
                 onClick={() => setActiveTab('IN_CD')}
                 className={`px-3 py-1.5 rounded-lg transition-all ${
@@ -978,7 +1184,7 @@ const PrismaModule: React.FC<PrismaModuleProps> = ({ sessionDate, currentUser, t
                   activeTab === 'COMPLETED' ? 'bg-emerald-600 text-white shadow font-black' : 'text-gray-600 hover:text-emerald-700'
                 }`}
               >
-                SAÍDAS CONCLUÍDAS ({stats.completedCount})
+                SAÍDAS ({stats.completedCount})
               </button>
               <button
                 onClick={() => setActiveTab('BREACHED')}
@@ -986,7 +1192,15 @@ const PrismaModule: React.FC<PrismaModuleProps> = ({ sessionDate, currentUser, t
                   activeTab === 'BREACHED' ? 'bg-red-600 text-white shadow font-black' : 'text-gray-600 hover:text-red-700'
                 }`}
               >
-                FORA DA META ({stats.breachedCount})
+                FORA DA META ({stats.totalBreached})
+              </button>
+              <button
+                onClick={() => setActiveTab('JUSTIFIED')}
+                className={`px-3 py-1.5 rounded-lg transition-all ${
+                  activeTab === 'JUSTIFIED' ? 'bg-purple-600 text-white shadow font-black' : 'text-gray-600 hover:text-purple-700'
+                }`}
+              >
+                JUSTIFICADAS ({stats.justifiedCount})
               </button>
               <button
                 onClick={() => setActiveTab('ALL')}
@@ -1005,15 +1219,16 @@ const PrismaModule: React.FC<PrismaModuleProps> = ({ sessionDate, currentUser, t
           <table className="w-full text-left text-xs">
             <thead className="bg-white border-b text-gray-400 font-black uppercase text-[10px]">
               <tr>
-                <th className="px-6 py-4">Placa & Veículo</th>
-                <th className="px-6 py-4">Pedido / Condutor</th>
-                <th className="px-6 py-4">Tipo</th>
-                <th className="px-6 py-4">Entrada</th>
-                <th className="px-6 py-4">Saída</th>
-                <th className="px-6 py-4">Tempo Total</th>
-                <th className="px-6 py-4">Status & Meta</th>
-                <th className="px-6 py-4">Justificativa / Problema</th>
-                <th className="px-6 py-4 text-right">Ação</th>
+                <th className="px-5 py-4">Placa & Veículo</th>
+                <th className="px-5 py-4">Pedido / Condutor</th>
+                <th className="px-4 py-4">Tipo</th>
+                <th className="px-4 py-4">Entrada</th>
+                <th className="px-4 py-4">Saída</th>
+                <th className="px-4 py-4">Tempo Total</th>
+                <th className="px-4 py-4">Status & Meta</th>
+                <th className="px-5 py-4">Observação</th>
+                <th className="px-6 py-4">Justificativa / Ocorrência</th>
+                <th className="px-4 py-4 text-right">Ação</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -1022,11 +1237,13 @@ const PrismaModule: React.FC<PrismaModuleProps> = ({ sessionDate, currentUser, t
                   const isCompleted = entry.status === 'COMPLETED';
                   const duration = isCompleted ? (entry.durationMinutes || 0) : getElapsedMinutes(entry.entryTime);
                   const isWithin = isCompleted ? entry.withinTarget : duration <= entry.targetMinutes;
+                  const isJustified = Boolean(entry.isJustified || (entry.justificationType && entry.isJustified !== false));
+                  const obsText = entry.observation || (!entry.isJustified ? entry.problemJustification : '');
 
                   return (
-                    <tr key={entry.id} className={`hover:bg-gray-50/80 transition-colors ${!isWithin ? 'bg-red-50/20' : ''}`}>
+                    <tr key={entry.id} className={`hover:bg-gray-50/80 transition-colors ${!isWithin && !isJustified ? 'bg-red-50/20' : isJustified ? 'bg-purple-50/20' : ''}`}>
                       {/* Placa & Veículo */}
-                      <td className="px-6 py-4">
+                      <td className="px-5 py-4">
                         <span className="font-mono font-black text-gray-900 bg-gray-100 px-2 py-0.5 rounded text-xs border border-gray-200">
                           {entry.plate}
                         </span>
@@ -1036,7 +1253,7 @@ const PrismaModule: React.FC<PrismaModuleProps> = ({ sessionDate, currentUser, t
                       </td>
 
                       {/* Pedido / Condutor */}
-                      <td className="px-6 py-4">
+                      <td className="px-5 py-4">
                         <span className="font-black text-gray-900 uppercase">#{entry.orderNumber}</span>
                         {entry.driverName && (
                           <p className="text-[10px] text-gray-500 font-bold uppercase mt-0.5">
@@ -1046,7 +1263,7 @@ const PrismaModule: React.FC<PrismaModuleProps> = ({ sessionDate, currentUser, t
                       </td>
 
                       {/* Tipo */}
-                      <td className="px-6 py-4">
+                      <td className="px-4 py-4">
                         <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded border inline-block ${
                           entry.clientType === 'FRETE'
                             ? 'bg-purple-50 text-purple-700 border-purple-200'
@@ -1057,12 +1274,12 @@ const PrismaModule: React.FC<PrismaModuleProps> = ({ sessionDate, currentUser, t
                       </td>
 
                       {/* Entrada */}
-                      <td className="px-6 py-4 font-mono font-bold text-gray-700">
+                      <td className="px-4 py-4 font-mono font-bold text-gray-700">
                         {new Date(entry.entryTime).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
                       </td>
 
                       {/* Saída */}
-                      <td className="px-6 py-4 font-mono font-bold">
+                      <td className="px-4 py-4 font-mono font-bold">
                         {entry.exitTime ? (
                           <span className="text-gray-900">
                             {new Date(entry.exitTime).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
@@ -1075,8 +1292,8 @@ const PrismaModule: React.FC<PrismaModuleProps> = ({ sessionDate, currentUser, t
                       </td>
 
                       {/* Tempo Total */}
-                      <td className="px-6 py-4">
-                        <span className={`font-black text-sm ${isWithin ? 'text-gray-900' : 'text-red-600'}`}>
+                      <td className="px-4 py-4">
+                        <span className={`font-black text-sm ${isWithin ? 'text-gray-900' : isJustified ? 'text-purple-700' : 'text-red-600'}`}>
                           {duration} min
                         </span>
                         <span className="text-[9px] text-gray-400 font-bold block uppercase">
@@ -1085,9 +1302,11 @@ const PrismaModule: React.FC<PrismaModuleProps> = ({ sessionDate, currentUser, t
                       </td>
 
                       {/* Status & Meta */}
-                      <td className="px-6 py-4">
+                      <td className="px-4 py-4">
                         <span className={`text-[9px] font-black uppercase px-2.5 py-1 rounded inline-block ${
-                          isCompleted
+                          isJustified
+                            ? 'bg-purple-100 text-purple-800 border border-purple-200'
+                            : isCompleted
                             ? isWithin 
                               ? 'bg-emerald-100 text-emerald-800' 
                               : 'bg-red-100 text-red-800 border border-red-200'
@@ -1095,53 +1314,117 @@ const PrismaModule: React.FC<PrismaModuleProps> = ({ sessionDate, currentUser, t
                               ? 'bg-amber-100 text-amber-800'
                               : 'bg-red-100 text-red-800 border border-red-200 animate-pulse'
                         }`}>
-                          {isCompleted 
+                          {isJustified
+                            ? 'Ocorrência Justificada'
+                            : isCompleted 
                             ? (isWithin ? 'Dentro da Meta' : 'Meta Excedida') 
                             : (isWithin ? 'Em Andamento' : 'Atrasado no CD')}
                         </span>
                       </td>
 
-                      {/* Justificativa / Problema */}
-                      <td className="px-6 py-4 max-w-xs">
-                        {entry.problemJustification ? (
-                          <div className="text-[11px] text-red-700 font-bold bg-red-50 p-2 rounded-lg border border-red-100 flex items-start gap-1.5">
-                            <i className="fas fa-triangle-exclamation text-red-500 mt-0.5"></i>
-                            <span>{entry.problemJustification}</span>
+                      {/* NOVA COLUNA: Observação */}
+                      <td className="px-5 py-4 max-w-xs">
+                        {obsText ? (
+                          <div className="text-[11px] text-gray-700 font-medium bg-gray-50 p-2 rounded-lg border border-gray-200 flex items-start gap-1.5">
+                            <i className="fas fa-comment-dots text-gray-400 mt-0.5"></i>
+                            <span className="break-words">{obsText}</span>
                           </div>
                         ) : (
-                          <span className="text-gray-400 italic text-[10px]">Sem ocorrências</span>
+                          <span className="text-gray-300 italic text-[11px]">—</span>
+                        )}
+                      </td>
+
+                      {/* NOVA COLUNA: Justificativa / Ocorrência */}
+                      <td className="px-6 py-4 max-w-sm">
+                        {isJustified ? (
+                          <div className="bg-purple-50 border border-purple-200 p-2.5 rounded-xl space-y-1">
+                            <div className="flex items-center justify-between gap-1">
+                              <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase px-2 py-0.5 rounded bg-purple-200/90 text-purple-900">
+                                <i className="fas fa-shield-halved text-purple-700"></i> JUSTIFICADA
+                              </span>
+                              <span className="text-[8px] font-bold text-purple-700 uppercase bg-white px-1.5 py-0.5 rounded border border-purple-100">
+                                Fora do SLA
+                              </span>
+                            </div>
+                            <p className="font-black text-xs text-purple-950 uppercase mt-0.5 leading-tight">
+                              {entry.justificationType || 'Ocorrência Operacional'}
+                            </p>
+                            {entry.justificationReason && (
+                              <p className="text-[11px] text-purple-800 font-medium italic mt-0.5 break-words">
+                                "{entry.justificationReason}"
+                              </p>
+                            )}
+                            {entry.justifiedBy && (
+                              <p className="text-[9px] text-purple-500 font-bold uppercase pt-0.5">
+                                Por: {entry.justifiedBy}
+                              </p>
+                            )}
+                          </div>
+                        ) : isCompleted && !isWithin ? (
+                          <div className="bg-red-50 border border-red-200 p-2.5 rounded-xl space-y-1">
+                            <div className="flex items-center justify-between gap-1">
+                              <span className="inline-flex items-center gap-1 text-[9px] font-black text-red-700 uppercase">
+                                <i className="fas fa-triangle-exclamation text-red-500"></i> NÃO JUSTIFICADA
+                              </span>
+                            </div>
+                            <p className="text-[10px] text-red-600 font-bold uppercase leading-tight">
+                              Impactando SLA e Tempo Médio
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => openEditModal(entry)}
+                              className="mt-1 w-full py-1 px-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-black text-[9px] uppercase tracking-wider transition-colors flex items-center justify-center gap-1 shadow-xs"
+                            >
+                              <i className="fas fa-file-signature"></i> Justificar Ocorrência
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="text-[10px] font-bold text-gray-400 uppercase flex items-center gap-1.5">
+                            <i className="fas fa-circle-check text-emerald-500 text-xs"></i>
+                            <span>{isCompleted ? 'No Prazo (Sem desvios)' : 'No Pátio (Em andamento)'}</span>
+                          </div>
                         )}
                       </td>
 
                       {/* Ação */}
-                      <td className="px-6 py-4 text-right">
-                        {!isCompleted ? (
-                          <button
-                            onClick={() => openExitModal(entry)}
-                            className="bg-[#1a1a1a] hover:bg-[#e67324] text-white px-3 py-1.5 rounded-lg font-black text-[10px] uppercase transition-all shadow-sm"
-                          >
-                            Saída
-                          </button>
-                        ) : (
+                      <td className="px-4 py-4 text-right whitespace-nowrap">
+                        <div className="flex items-center justify-end gap-1.5">
+                          {!isCompleted ? (
+                            <button
+                              onClick={() => openExitModal(entry)}
+                              className="bg-[#1a1a1a] hover:bg-[#e67324] text-white px-3 py-1.5 rounded-lg font-black text-[10px] uppercase transition-all shadow-sm"
+                            >
+                              Saída
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => openEditModal(entry)}
+                              className="bg-gray-100 hover:bg-[#e67324] hover:text-white text-gray-700 px-2.5 py-1.5 rounded-lg font-black text-[10px] uppercase transition-all shadow-xs flex items-center gap-1"
+                              title="Editar observação ou justificar ocorrência"
+                            >
+                              <i className="fas fa-pen-to-square"></i>
+                              <span>Editar</span>
+                            </button>
+                          )}
                           <button
                             onClick={() => {
                               if (confirm("Remover este registro de permanência?")) {
                                 DataService.deletePrismaEntry(entry.id);
                               }
                             }}
-                            className="text-gray-300 hover:text-red-500 p-1 transition-colors"
+                            className="text-gray-300 hover:text-red-500 p-1.5 transition-colors rounded-lg hover:bg-red-50"
                             title="Excluir registro"
                           >
-                            <i className="fas fa-trash-alt"></i>
+                            <i className="fas fa-trash-alt text-xs"></i>
                           </button>
-                        )}
+                        </div>
                       </td>
                     </tr>
                   );
                 })
               ) : (
                 <tr>
-                  <td colSpan={9} className="px-6 py-12 text-center text-gray-400 font-bold uppercase tracking-wider">
+                  <td colSpan={10} className="px-6 py-12 text-center text-gray-400 font-bold uppercase tracking-wider">
                     Nenhum registro encontrado com os filtros selecionados.
                   </td>
                 </tr>
@@ -1213,42 +1496,80 @@ const PrismaModule: React.FC<PrismaModuleProps> = ({ sessionDate, currentUser, t
               </div>
             </div>
 
-            {/* SEÇÃO DE JUSTIFICATIVA (SE HOUVE PROBLEMA OU ATRASO) */}
-            <div className="space-y-3 mb-6">
-              <label className="text-[11px] font-black uppercase text-gray-800 flex items-center justify-between">
-                <span>Justificativa de Problemas / Desvios (Opcional):</span>
+            {/* SEÇÃO DE JUSTIFICATIVA DA OCORRÊNCIA (COM TIPOS PADRÕES CADASTRADOS) */}
+            <div className="space-y-3 mb-6 bg-gray-50 p-4 rounded-2xl border border-gray-200">
+              <div className="flex items-center justify-between">
+                <label className="text-[11px] font-black uppercase text-gray-800 flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={exitIsJustified}
+                    onChange={(e) => setExitIsJustified(e.target.checked)}
+                    className="w-4 h-4 text-[#e67324] rounded border-gray-300 focus:ring-[#e67324]"
+                  />
+                  <span>Justificar Saída como Ocorrência</span>
+                </label>
                 {getElapsedMinutes(completingEntry.entryTime) > completingEntry.targetMinutes && (
-                  <span className="text-red-600 text-[10px] font-black uppercase animate-pulse">
+                  <span className="text-red-600 text-[10px] font-black uppercase animate-pulse flex items-center gap-1">
                     <i className="fas fa-triangle-exclamation"></i> Tempo Excedido
                   </span>
                 )}
-              </label>
-
-              <div className="space-y-1.5">
-                {PROBLEM_SUGGESTIONS.map(sug => (
-                  <button
-                    key={sug}
-                    type="button"
-                    onClick={() => setExitJustification(sug)}
-                    className={`w-full text-left p-2.5 rounded-xl border text-xs font-bold transition-all ${
-                      exitJustification === sug
-                        ? 'border-[#e67324] bg-orange-50/60 text-gray-900 font-black'
-                        : 'border-gray-200 hover:bg-gray-50 text-gray-700'
-                    }`}
-                  >
-                    <i className={`fas fa-check-circle mr-2 ${exitJustification === sug ? 'text-[#e67324]' : 'text-gray-300'}`}></i>
-                    {sug}
-                  </button>
-                ))}
               </div>
 
-              {/* Campo para detalhamento ou motivo customizado */}
-              <textarea
-                placeholder="Observações complementares da portaria..."
-                value={customJustification}
-                onChange={(e) => setCustomJustification(e.target.value)}
-                className="w-full p-3 border-2 border-gray-200 rounded-xl outline-none text-xs font-bold focus:border-[#e67324] uppercase mt-2 h-20 resize-none bg-gray-50 focus:bg-white"
-              ></textarea>
+              {exitIsJustified && (
+                <div className="space-y-3 pt-2 border-t border-gray-200 animate-fadeIn">
+                  <div className="p-2.5 bg-purple-50 border border-purple-200 rounded-xl text-[10px] text-purple-900 font-bold flex items-start gap-2">
+                    <i className="fas fa-info-circle text-purple-600 mt-0.5"></i>
+                    <span>
+                      Esta saída será <strong>desconsiderada do cálculo de Tempo Médio e do SLA</strong> da portaria, mantendo-se apenas no total de saídas.
+                    </span>
+                  </div>
+
+                  {/* Seleção do Tipo de Ocorrência Padrão */}
+                  <div>
+                    <label className="text-[10px] font-black uppercase text-gray-600 block mb-1">
+                      Tipo de Ocorrência Padrão:
+                    </label>
+                    <select
+                      value={exitJustificationType}
+                      onChange={(e) => setExitJustificationType(e.target.value)}
+                      className="w-full p-2.5 bg-white border border-gray-300 rounded-xl text-xs font-bold text-gray-800 uppercase outline-none focus:border-[#e67324]"
+                    >
+                      {occurrenceTypes.map(occ => (
+                        <option key={occ.id} value={occ.name}>
+                          {occ.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Motivo Detalhado / Observações da Justificativa */}
+                  <div>
+                    <label className="text-[10px] font-black uppercase text-gray-600 block mb-1">
+                      Detalhes da Justificativa / Desvio:
+                    </label>
+                    <textarea
+                      placeholder="Explique o motivo do atraso ou desvio operacional..."
+                      value={exitJustificationReason}
+                      onChange={(e) => setExitJustificationReason(e.target.value)}
+                      className="w-full p-2.5 bg-white border border-gray-300 rounded-xl text-xs font-bold text-gray-800 uppercase outline-none focus:border-[#e67324] h-18 resize-none"
+                    ></textarea>
+                  </div>
+                </div>
+              )}
+
+              {/* Observação Geral da Saída */}
+              <div className="pt-2">
+                <label className="text-[10px] font-black uppercase text-gray-600 block mb-1">
+                  Observação Geral da Saída (Portaria):
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ex: Liberado pela doca 04, canhoto assinado..."
+                  value={exitObservation}
+                  onChange={(e) => setExitObservation(e.target.value)}
+                  className="w-full p-2.5 bg-white border border-gray-300 rounded-xl text-xs font-bold text-gray-800 uppercase outline-none focus:border-[#e67324]"
+                />
+              </div>
             </div>
 
             {/* Ações */}
@@ -1266,6 +1587,273 @@ const PrismaModule: React.FC<PrismaModuleProps> = ({ sessionDate, currentUser, t
                 <i className="fas fa-check"></i> Confirmar Saída
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: EDITAR REGISTRO & JUSTIFICAR OCORRÊNCIA RETROATIVAMENTE */}
+      {editingEntry && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-gray-100 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center gap-3 mb-4 text-[#e67324]">
+              <div className="w-10 h-10 rounded-2xl bg-orange-100 flex items-center justify-center text-lg font-black">
+                <i className="fas fa-file-signature"></i>
+              </div>
+              <div>
+                <h3 className="text-base font-black uppercase tracking-tight text-gray-900">
+                  Editar Saída & Justificar Ocorrência
+                </h3>
+                <p className="text-[10px] text-gray-400 font-bold uppercase">
+                  Placa: {editingEntry.plate} • Pedido #{editingEntry.orderNumber}
+                </p>
+              </div>
+            </div>
+
+            {/* Resumo do Veículo */}
+            <div className="bg-gray-50 rounded-2xl p-4 mb-4 border border-gray-200 space-y-2">
+              <div className="grid grid-cols-2 gap-3 text-xs">
+                <div>
+                  <label className="text-[10px] font-black uppercase text-gray-400 block">Número do Pedido:</label>
+                  <input
+                    type="text"
+                    value={editOrderNumber}
+                    onChange={(e) => setEditOrderNumber(e.target.value)}
+                    className="w-full p-2 bg-white border border-gray-300 rounded-lg text-xs font-black uppercase"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-black uppercase text-gray-400 block">Condutor / Motorista:</label>
+                  <input
+                    type="text"
+                    value={editDriverName}
+                    onChange={(e) => setEditDriverName(e.target.value)}
+                    className="w-full p-2 bg-white border border-gray-300 rounded-lg text-xs font-black uppercase"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-2 border-t border-gray-200 flex justify-between items-center text-xs">
+                <span className="font-bold text-gray-500 uppercase">Tempo de Permanência:</span>
+                <span className="font-black text-[#e67324]">
+                  {editingEntry.durationMinutes ?? getElapsedMinutes(editingEntry.entryTime)} minutos (Meta: {editingEntry.targetMinutes}m)
+                </span>
+              </div>
+            </div>
+
+            {/* SEÇÃO DE JUSTIFICATIVA DA OCORRÊNCIA */}
+            <div className="space-y-3 mb-5 bg-purple-50/50 p-4 rounded-2xl border border-purple-200">
+              <div className="flex items-center justify-between">
+                <label className="text-[11px] font-black uppercase text-purple-950 flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={editIsJustified}
+                    onChange={(e) => setEditIsJustified(e.target.checked)}
+                    className="w-4 h-4 text-purple-600 rounded border-purple-300 focus:ring-purple-600"
+                  />
+                  <span>Saída Justificada (Isenta de SLA e Tempo Médio)</span>
+                </label>
+              </div>
+
+              {editIsJustified ? (
+                <div className="space-y-3 pt-2 border-t border-purple-100 animate-fadeIn">
+                  <div className="p-2.5 bg-white border border-purple-200 rounded-xl text-[10px] text-purple-900 font-bold flex items-start gap-2 shadow-xs">
+                    <i className="fas fa-shield-halved text-purple-600 mt-0.5"></i>
+                    <span>
+                      Esta saída <strong>não entrará no cálculo de tempo médio nem no % de SLA</strong>. O volume total de saídas permanecerá inalterado.
+                    </span>
+                  </div>
+
+                  {/* Seleção do Tipo de Ocorrência Padrão */}
+                  <div>
+                    <label className="text-[10px] font-black uppercase text-purple-900 block mb-1">
+                      Tipo de Ocorrência Padrão:
+                    </label>
+                    <select
+                      value={editJustificationType}
+                      onChange={(e) => setEditJustificationType(e.target.value)}
+                      className="w-full p-2.5 bg-white border border-purple-200 rounded-xl text-xs font-bold text-gray-800 uppercase outline-none focus:border-purple-600"
+                    >
+                      {occurrenceTypes.map(occ => (
+                        <option key={occ.id} value={occ.name}>
+                          {occ.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Motivo Detalhado / Observações da Justificativa */}
+                  <div>
+                    <label className="text-[10px] font-black uppercase text-purple-900 block mb-1">
+                      Motivo / Justificativa Detalhada:
+                    </label>
+                    <textarea
+                      placeholder="Descreva o motivo que levou ao atraso ou exceção..."
+                      value={editJustificationReason}
+                      onChange={(e) => setEditJustificationReason(e.target.value)}
+                      className="w-full p-2.5 bg-white border border-purple-200 rounded-xl text-xs font-bold text-gray-800 uppercase outline-none focus:border-purple-600 h-20 resize-none"
+                    ></textarea>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-[10px] text-gray-500 font-bold uppercase italic">
+                  Desmarcado: Esta saída será considerada normalmente nos cálculos de SLA e tempo médio.
+                </p>
+              )}
+            </div>
+
+            {/* Campo da Coluna de Observação */}
+            <div className="mb-6">
+              <label className="text-[10px] font-black uppercase text-gray-700 block mb-1">
+                Coluna Observação (Portaria / Geral):
+              </label>
+              <textarea
+                placeholder="Observações gerais sobre a saída ou veículo..."
+                value={editObservation}
+                onChange={(e) => setEditObservation(e.target.value)}
+                className="w-full p-2.5 bg-gray-50 border border-gray-300 rounded-xl text-xs font-bold text-gray-800 uppercase outline-none focus:border-[#e67324] h-16 resize-none"
+              ></textarea>
+            </div>
+
+            {/* Ações */}
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={() => setEditingEntry(null)}
+                className="py-3 px-4 rounded-xl border-2 border-gray-200 text-gray-700 hover:bg-gray-100 font-black uppercase text-xs transition-all"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleSaveEdit}
+                className="py-3 px-4 rounded-xl bg-[#e67324] hover:bg-orange-600 text-white font-black uppercase text-xs shadow-lg transition-all flex items-center justify-center gap-2"
+              >
+                <i className="fas fa-save"></i> Salvar Registro
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: CADASTRO DE TIPOS DE OCORRÊNCIA PADRÃO */}
+      {isOccurrenceModalOpen && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-gray-100 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-gray-100 mb-4">
+              <div className="flex items-center gap-3 text-[#e67324]">
+                <div className="w-10 h-10 rounded-2xl bg-orange-100 flex items-center justify-center text-lg font-black">
+                  <i className="fas fa-clipboard-list"></i>
+                </div>
+                <div>
+                  <h3 className="text-base font-black uppercase tracking-tight text-gray-900">
+                    Tipos de Ocorrência Padrão
+                  </h3>
+                  <p className="text-[10px] text-gray-400 font-bold uppercase">
+                    Justificativas Pré-Cadastradas para o PRISMA
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsOccurrenceModalOpen(false)}
+                className="text-gray-400 hover:text-gray-600 p-2 text-base"
+              >
+                <i className="fas fa-times"></i>
+              </button>
+            </div>
+
+            {/* Mensagem de Feedback (Sucesso / Erro) */}
+            {occurrenceMessage && (
+              <div className={`p-3 rounded-2xl mb-4 text-xs font-black uppercase flex items-center gap-2.5 transition-all shadow-xs ${
+                occurrenceMessage.type === 'success' 
+                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
+                  : 'bg-red-50 text-red-700 border border-red-200'
+              }`}>
+                <i className={`fas ${occurrenceMessage.type === 'success' ? 'fa-check-circle' : 'fa-exclamation-triangle'} text-sm`}></i>
+                <span>{occurrenceMessage.text}</span>
+              </div>
+            )}
+
+            {/* Formulário para Adicionar Novo Tipo */}
+            <form onSubmit={handleAddOccurrenceType} className="bg-gray-50 p-4 rounded-2xl border border-gray-200 mb-5 space-y-3">
+              <h4 className="text-xs font-black uppercase tracking-wider text-gray-800 flex items-center gap-1.5">
+                <i className="fas fa-plus-circle text-[#e67324]"></i> Cadastrar Novo Tipo
+              </h4>
+              <div>
+                <input
+                  type="text"
+                  placeholder="Nome do tipo de ocorrência (Ex: Falha no coletor de dados)..."
+                  value={newOccurrenceName}
+                  onChange={(e) => setNewOccurrenceName(e.target.value)}
+                  className="w-full p-2.5 bg-white border border-gray-300 rounded-xl text-xs font-bold uppercase outline-none focus:border-[#e67324]"
+                  required
+                />
+              </div>
+              <div>
+                <input
+                  type="text"
+                  placeholder="Descrição complementar (opcional)..."
+                  value={newOccurrenceDesc}
+                  onChange={(e) => setNewOccurrenceDesc(e.target.value)}
+                  className="w-full p-2 bg-white border border-gray-300 rounded-xl text-xs font-medium uppercase outline-none focus:border-[#e67324]"
+                />
+              </div>
+              <button
+                type="submit"
+                className="w-full py-2.5 bg-[#1a1a1a] hover:bg-[#e67324] text-white rounded-xl font-black text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2 shadow-xs"
+              >
+                <i className="fas fa-plus"></i> Adicionar Tipo de Ocorrência
+              </button>
+            </form>
+
+            {/* Lista de Tipos Cadastrados */}
+            <div className="space-y-2 mb-5">
+              <div className="flex justify-between items-center px-1">
+                <span className="text-[10px] font-black uppercase text-gray-400">
+                  Tipos Ativos ({occurrenceTypes.length})
+                </span>
+                <button
+                  type="button"
+                  onClick={handleRestoreDefaultOccurrenceTypes}
+                  className="text-[10px] font-black text-[#e67324] hover:underline uppercase flex items-center gap-1"
+                >
+                  <i className="fas fa-rotate-left"></i> Restaurar Padrões
+                </button>
+              </div>
+
+              <div className="space-y-1.5 max-h-60 overflow-y-auto pr-1">
+                {occurrenceTypes.map((type, idx) => (
+                  <div
+                    key={type.id || idx}
+                    className="p-3 bg-white border border-gray-200 rounded-xl flex items-center justify-between gap-3 hover:border-gray-300 transition-colors"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-xs font-black text-gray-900 uppercase truncate">
+                        {type.name}
+                      </p>
+                      {type.description && (
+                        <p className="text-[10px] text-gray-400 font-bold uppercase truncate">
+                          {type.description}
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteOccurrenceType(type, idx)}
+                      className="text-gray-400 hover:text-red-500 hover:bg-red-50 p-2 rounded-xl transition-all shrink-0"
+                      title={`Excluir tipo "${type.name}"`}
+                    >
+                      <i className="fas fa-trash-alt text-xs"></i>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Botão Fechar */}
+            <button
+              onClick={() => setIsOccurrenceModalOpen(false)}
+              className="w-full py-3 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-xl font-black uppercase text-xs transition-all"
+            >
+              Concluir
+            </button>
           </div>
         </div>
       )}
